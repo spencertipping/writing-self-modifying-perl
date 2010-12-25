@@ -266,7 +266,7 @@ meta::meta('type::meta', <<'__640f25635ce2365b0648962918cf9932');
 meta::configure 'meta', extension => '.pl', inherit => 1;
 __640f25635ce2365b0648962918cf9932
 
-meta::meta('type::note', 'meta::functor::editable \'note\', extension => \'\', inherit => 0, default => \'edit\';');
+meta::meta('type::note', 'meta::functor::editable \'note\', extension => \'.sdoc\', inherit => 0, default => \'edit\';');
 meta::meta('type::parent', <<'__607e9931309b1b595424bedcee5dfa45');
 meta::define_form 'parent', \&meta::bootstrap::implementation;
 meta::configure 'parent', extension => '', inherit => 1;
@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.2iSs/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.2DB1/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1470,7 +1470,7 @@ __5a7e0bd196996326e6278b6dc308371c
 
 meta::resource('header-refs', '\\newcommand{\\Ref}[2]{\\hyperref[#2]{#1 \\ref*{#2}}}');
 meta::resource('header-resource', '\\lstnewenvironment{resourcecode}{}{}');
-meta::section('a-big-quine', <<'__4f4269b346697a6dfb974b3761f3a22b');
+meta::section('a-big-quine', <<'__607f28dc952bda193df101c2e365036d');
 - s1 A Big Quine | sec:a-big-quine
   At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
 
@@ -1484,10 +1484,11 @@ meta::section('a-big-quine', <<'__4f4269b346697a6dfb974b3761f3a22b');
   - s2 A Basic Quine | sec:a-basic-quine
     Some languages make quine-writing easier than others. Perl actually makes it very simple. Here's one:
 
-    - verbatim << end
-      
+    - perl examples/small-quine << end
+      my $code = 'print $code, "\n"; print \'my $code = \', $code, "\n";';
+      print $code, "\n"; print 'my $code = ', $code, "\n";
     - end
-__4f4269b346697a6dfb974b3761f3a22b
+__607f28dc952bda193df101c2e365036d
 
 meta::section('introduction', <<'__83a1ea16bfdd6a2450248a763e9fe10d');
 - s1 Introduction | sec:introduction
@@ -1518,7 +1519,7 @@ meta::section('introduction', <<'__83a1ea16bfdd6a2450248a763e9fe10d');
   This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it.
 __83a1ea16bfdd6a2450248a763e9fe10d
 
-meta::section('main', <<'__d271397695855dfb795c597be8d6970e');
+meta::section('main', <<'__7f779a028533e2bc397fd9c5c65b22ba');
 - documentclass article
 - include resource::header
 
@@ -1530,8 +1531,9 @@ meta::section('main', <<'__d271397695855dfb795c597be8d6970e');
   - tableofcontents
 
   - include section::introduction
+  - include section::a-big-quine
 - end
-__d271397695855dfb795c597be8d6970e
+__7f779a028533e2bc397fd9c5c65b22ba
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');
@@ -1554,7 +1556,7 @@ join "\n", map retrieve($_), split /\s+/, $commands;
 __e0624844a65ae41e0217dd871fc0dbfb
 
 meta::template('item[]', '"\\\\item[$_[0]]";');
-meta::vim_highlighter('cltex', <<'__5bfc80e1a2ad3bb7cb4f57ff906d71b0');
+meta::vim_highlighter('cltex', <<'__428c1e08cdadbb52c32d5e49b411b0f8');
 " Cleaner TeX
 " Maintainer: Spencer Tipping <spencer@spencertipping.com>
 " Language:   Cleaner TeX (a variant of LaTeX with support for a bunch of embedded languages)
@@ -1574,12 +1576,14 @@ syn include @java          syntax/java.vim       | unlet b:current_syntax
 syn include @asm           syntax/asm.vim        | unlet b:current_syntax
 syn include @javascript    syntax/javascript.vim | unlet b:current_syntax
 syn include @html          syntax/html.vim       | unlet b:current_syntax
+syn include @perl          syntax/perl.vim       | unlet b:current_syntax
 
 syn region  cltCpp         matchgroup=cltCode start=/^\z(\s*\)- cpp .*<<\s*\z(\w\+\)$/        end=/^\z1- \z2$/ contains=@cpp
 syn region  cltJava        matchgroup=cltCode start=/^\z(\s*\)- java .*<<\s*\z(\w\+\)$/       end=/^\z1- \z2$/ contains=@java
 syn region  cltAsm         matchgroup=cltCode start=/^\z(\s*\)- asm .*<<\s*\z(\w\+\)$/        end=/^\z1- \z2$/ contains=@asm
 syn region  cltJavascript  matchgroup=cltCode start=/^\z(\s*\)- javascript .*<<\s*\z(\w\+\)$/ end=/^\z1- \z2$/ contains=@javascript
 syn region  cltHtml        matchgroup=cltCode start=/^\z(\s*\)- html .*<<\s*\z(\w\+\)$/       end=/^\z1- \z2$/ contains=@html
+syn region  cltPerl        matchgroup=cltCode start=/^\z(\s*\)- perl .*<<\s*\z(\w\+\)$/       end=/^\z1- \z2$/ contains=@perl
 syn region  cltResource    matchgroup=cltCode start=/^\z(\s*\)- resource .*<<\s*\z(\w\+\)$/   end=/^\z1- \z2$/
 syn region  cltComment     matchgroup=cltCode start=/^\z(\s*\)- comment .*<<\s*\z(\w\+\)$/    end=/^\z1- \z2$/
 
@@ -1598,7 +1602,7 @@ hi link cltComment         Type
 hi link cltLineComment     Type
 
 let b:current_syntax = "cltex"
-__5bfc80e1a2ad3bb7cb4f57ff906d71b0
+__428c1e08cdadbb52c32d5e49b411b0f8
 
 internal::main();
 
