@@ -1,0 +1,4 @@
+my $code = <<'EOF';
+print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
+EOF
+print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;

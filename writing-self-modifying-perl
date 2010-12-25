@@ -379,11 +379,11 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.2DB1/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.aFzt/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
-meta::data('source-directory', '/tmp/src');
+meta::data('source-directory', '.');
 meta::data('table-of-contents', '1');
 meta::data('tex-command', 'latex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('watching', '0');
@@ -1444,13 +1444,14 @@ meta::resource('header', <<'__efe6254be4f73fb4170ab1980a1888d5');
 - include resource::header-resource
 __efe6254be4f73fb4170ab1980a1888d5
 
-meta::resource('header-languages', <<'__637a18cf607b727dec3feab552be05e2');
+meta::resource('header-languages', <<'__a3965f910e7c2a1aa3a9d052f7daf573');
 \lstnewenvironment{asmcode}       {}{}
 \lstnewenvironment{cppcode}       {\lstset{language=c++}}{}
 \lstnewenvironment{javacode}      {\lstset{language=java}}{}
 \lstnewenvironment{javascriptcode}{}{}
 \lstnewenvironment{htmlcode}      {\lstset{language=html}}{}
-__637a18cf607b727dec3feab552be05e2
+\lstnewenvironment{perlcode}      {\lstset{language=perl}}{}
+__a3965f910e7c2a1aa3a9d052f7daf573
 
 meta::resource('header-listings', <<'__4caf6ff3ff152cce49ad5d1775ad0703');
 \definecolor{gray}{rgb}{0.6,0.6,0.6}
@@ -1470,8 +1471,8 @@ __5a7e0bd196996326e6278b6dc308371c
 
 meta::resource('header-refs', '\\newcommand{\\Ref}[2]{\\hyperref[#2]{#1 \\ref*{#2}}}');
 meta::resource('header-resource', '\\lstnewenvironment{resourcecode}{}{}');
-meta::section('a-big-quine', <<'__607f28dc952bda193df101c2e365036d');
-- s1 A Big Quine | sec:a-big-quine
+meta::section('a-big-quine', <<'__3ebdb910a718fae14b9055b1fcf954c7');
+- sc A Big Quine | sec:a-big-quine
   At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
 
   - enumerate << end
@@ -1479,19 +1480,32 @@ meta::section('a-big-quine', <<'__607f28dc952bda193df101c2e365036d');
     - item They print modified versions of themselves, not the original source.
   - end
 
-  If we're going to write such a script, it's good to start with a simple quine.
+  \noindent If we're going to write such a script, it's good to start with a simple quine.
 
-  - s2 A Basic Quine | sec:a-basic-quine
+  - s1 A Basic Quine | sec:a-basic-quine
     Some languages make quine-writing easier than others. Perl actually makes it very simple. Here's one:
 
-    - perl examples/small-quine << end
-      my $code = 'print $code, "\n"; print \'my $code = \', $code, "\n";';
-      print $code, "\n"; print 'my $code = ', $code, "\n";
+    - perl examples/basic-quine << end
+      my $code = <<'EOF';
+      print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
+      EOF
+      print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
     - end
-__607f28dc952bda193df101c2e365036d
 
-meta::section('introduction', <<'__83a1ea16bfdd6a2450248a763e9fe10d');
-- s1 Introduction | sec:introduction
+    \noindent The logic is fairly straightforward, though it may not look like it. We're quoting a bunch of stuff using \verb|<<'EOF'|,\footnote{The single-quoted heredoc form doesn't do any
+    interpolation inside the document, which is ideal since we don't want to worry about escaping stuff.} and storing that into a string. We then put the quoted content outside of the heredoc
+    to let it execute. The duplication is necessary; we want to quote the content and then run it.\footnote{Later on I'll use {\tt eval} to reduce the amount of duplication.} The key is this
+    line:
+
+    - verbatim << end
+      print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
+    - end
+
+    \noindent This code prints the setup to define a new variable \verb|$code| and prints its existing content after that.
+__3ebdb910a718fae14b9055b1fcf954c7
+
+meta::section('introduction', <<'__ee2ec8d5aaf0fc4f0be4015f04a13148');
+- sc Introduction | sec:introduction
   I've gotten a lot of WTF's\footnote{\url{http://www.osnews.com/story/19266/WTFs_m}} about self-modifying Perl scripts. Rightfully so, too. There's no documentation (until now), the interface
   is opaque and not particularly portable, and they aren't even very human-readable when edited:
 
@@ -1517,10 +1531,10 @@ meta::section('introduction', <<'__83a1ea16bfdd6a2450248a763e9fe10d');
   ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.}
 
   This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it.
-__83a1ea16bfdd6a2450248a763e9fe10d
+__ee2ec8d5aaf0fc4f0be4015f04a13148
 
-meta::section('main', <<'__7f779a028533e2bc397fd9c5c65b22ba');
-- documentclass article
+meta::section('main', <<'__0d6984086509dc550fcea3592903fd45');
+- documentclass report
 - include resource::header
 
 - title  Writing Self-Modifying Perl
@@ -1533,7 +1547,7 @@ meta::section('main', <<'__7f779a028533e2bc397fd9c5c65b22ba');
   - include section::introduction
   - include section::a-big-quine
 - end
-__7f779a028533e2bc397fd9c5c65b22ba
+__0d6984086509dc550fcea3592903fd45
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');
