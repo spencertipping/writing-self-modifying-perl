@@ -1,0 +1,46 @@
+my %data;
+$data{cat} = <<'EOF';
+sub cat {
+  print join "\n", @data{@_};
+}
+EOF
+$data{set} = <<'EOF';
+sub set {
+  $data{$_[0]} = join '', <STDIN>;
+}
+EOF
+$data{edit} = <<'EOF';
+sub edit {
+  my $filename = '/tmp/' . rand();
+  open my $file, '>', $filename;
+  print $file $data{$_[0]};
+  close $file;
+
+  system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+
+  open my $file, '<', $filename;
+  $data{$_[0]} = join '', <$file>;
+  close $file;
+}
+EOF
+$data{code} = <<'EOF';
+# Eval functions into existence:
+eval $data{cat};
+eval $data{set};
+eval $data{edit};
+
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $fh, '>', $0;
+print $fh 'my %data;', "\n";
+print $fh '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $fh $data{bootstrap};
+close $fh;
+EOF
+$data{bootstrap} = <<'EOF';
+eval $data{code};
+EOF
+eval $data{code};

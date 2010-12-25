@@ -1,0 +1,92 @@
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+
+meta::bootstrap('initialization', <<'EOF');
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+EOF
+
+meta::function('cat', <<'EOF');
+print join "\n", @data{@_};
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file $data{$_[0]};
+close $file;
+
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+
+open my $file, '<', $filename;
+$data{$_[0]} = join '', <$file>;
+close $file;
+EOF
+
+meta::code('main', <<'EOF');
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $file, '>', $0;
+print $file $data{'bootstrap::initialization'};
+
+# Serialize attributes (everything else before code):
+for (grep(!/^code::/, keys %data), grep(/^code::/, keys %data)) {
+  my ($namespace, $name) = split /::/, $_, 2;
+  print $file "meta::$namespace('$name', <<'EOF');\n$data{$_}\nEOF\n";
+}
+
+# Just for good measure:
+print $file "\n__END__";
+close $file;
+EOF
+
+__END__
