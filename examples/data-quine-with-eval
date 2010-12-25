@@ -1,0 +1,13 @@
+my %data;
+$data{foo} = <<'EOF';
+a string
+EOF
+$data{code} = <<'EOF';
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{bootstrap};
+EOF
+$data{bootstrap} = <<'EOF';
+eval $data{code};
+EOF
+eval $data{code};

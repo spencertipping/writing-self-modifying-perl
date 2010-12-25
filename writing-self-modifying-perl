@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.aFzt/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.ofEF/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1471,7 +1471,7 @@ __5a7e0bd196996326e6278b6dc308371c
 
 meta::resource('header-refs', '\\newcommand{\\Ref}[2]{\\hyperref[#2]{#1 \\ref*{#2}}}');
 meta::resource('header-resource', '\\lstnewenvironment{resourcecode}{}{}');
-meta::section('a-big-quine', <<'__3ebdb910a718fae14b9055b1fcf954c7');
+meta::section('a-big-quine', <<'__67514096cf09af8476a58f20225ef36c');
 - sc A Big Quine | sec:a-big-quine
   At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
 
@@ -1502,7 +1502,64 @@ meta::section('a-big-quine', <<'__3ebdb910a718fae14b9055b1fcf954c7');
     - end
 
     \noindent This code prints the setup to define a new variable \verb|$code| and prints its existing content after that.
-__3ebdb910a718fae14b9055b1fcf954c7
+
+  - s1 Reducing Duplication | sec:reducing-duplication
+    We don't want to write everything in our quine twice. Rather, we want to store most stuff just once and have a quine that scales well. The easiest way to do this is to use a hash to store
+    the state, and serialize each key of the hash in the self-printing code. So instead of creating \verb|$code|, we'll create \verb|%data|:
+
+    - perl examples/data-quine << end
+      my %data;
+      $data{code} = <<'EOF';
+      print 'my %data;', "\n";
+      print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+      print $data{code};
+      EOF
+      print 'my %data;', "\n";
+      print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+      print $data{code};
+    - end
+
+    \noindent This is a good start. Here's how to add attributes without duplication:
+
+    - perl examples/data-quine-with-field << end
+      my %data;
+      $data{foo} = <<'EOF';
+      a string
+      EOF
+      $data{code} = <<'EOF';
+      print 'my %data;', "\n";
+      print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+      print $data{code};
+      EOF
+      print 'my %data;', "\n";
+      print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+      print $data{code};
+    - end
+
+  - s1 Using {\tt eval} | sec:using-eval
+    The business about duplicating \verb|$data{code}| is easily remedied by just {\tt eval}ing \verb|$data{code}| at the end. This requires the {\tt eval} section to be duplicated, but it's
+    smaller than \verb|$data{code}|. Here's the quine with that transformation:\footnote{Note that these quines might not actually print themselves identically due to hash-key ordering. This
+    is fine; all of the keys are printed before we use them.}
+
+    - perl examples/data-quine-with-eval << end
+      my %data;
+      $data{foo} = <<'EOF';
+      a string
+      EOF
+      $data{code} = <<'EOF';
+      print 'my %data;', "\n";
+      print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+      print $data{bootstrap};
+      EOF
+      $data{bootstrap} = <<'EOF';
+      eval $data{code};
+      EOF
+      eval $data{code};
+    - end
+
+    \noindent The advantage to this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
+    understand what's going on here, since this idea is integral to everything going forward.
+__67514096cf09af8476a58f20225ef36c
 
 meta::section('introduction', <<'__ee2ec8d5aaf0fc4f0be4015f04a13148');
 - sc Introduction | sec:introduction
