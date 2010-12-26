@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.CrDU/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.b95S/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2153,7 +2153,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__01e206f8d68b115decd96ba8a4b9aa28');
+meta::section('cloning-and-inheritance', <<'__cc8256519d644e59bb584dd0a4bdf004');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2256,7 +2256,7 @@ meta::section('cloning-and-inheritance', <<'__01e206f8d68b115decd96ba8a4b9aa28')
 
     The output of this function is a reference to a hash of any keyword arguments (where short-form arguments are treated as increments) followed by any non-switch arguments (either because
     they came after \verb|--| or because they didn't start with a dash at all. For example, processing the arguments \verb|-xy --z=foo bar| would yield
-    \verb|({-x => 1, -y => 1, --z => foo}, bar)|.\footnote{Given the similarity, I don't remember why I dind't just use {\tt Getopt::Long} for this stuff. I think I must have been having a NIH
+    \verb|({-x => 1, -y => 1, --z => foo}, bar)|.\footnote{Given the similarity, I don't remember why I didn't just use {\tt Getopt::Long} for this stuff. I think I must have been having a NIH
     day.}
 
     Given the ability to pipe options into {\tt serialize} on the command-line, we just need to have it support a reasonably flexible selection interface. We'll later need to have {\tt ls}
@@ -2277,7 +2277,26 @@ meta::section('cloning-and-inheritance', <<'__01e206f8d68b115decd96ba8a4b9aa28')
 
     This function takes the \verb|%options| hash output by \verb|separate_options| as input and returns a list of keys into \verb|%data|. The somewhat odd logical structure of the {\tt grep}
     predicate is just implication: ``if \verb|$options{'-i'}| is set, then the key's namespace must be inheritable.''
-__01e206f8d68b115decd96ba8a4b9aa28
+
+    The new {\tt serialize} function is fairly simple; most of the heavy lifting is already done:
+
+    - perl snippets/serialize-final << end
+      meta::function('serialize', <<'EOF');
+      my ($options, @criteria) = separate_options(@_);
+      my $partial = $$options{'-p'};
+      my $criteria = join '|', @criteria;
+      my @attributes = map serialize_single($_), 
+        select_keys(%$options, '-m' => 1, '--criteria' => $criteria),
+        select_keys(%$options, '-M' => 1, '--criteria' => $criteria);
+      my @final_array = @{$partial ? \@attributes :
+                                     [retrieve('bootstrap::initialization'),
+                                      @attributes,
+                                      'internal::main();', '',
+                                      '__END__']};
+      join "\n", @final_array;
+      EOF
+    - end
+__cc8256519d644e59bb584dd0a4bdf004
 
 meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces

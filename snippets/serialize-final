@@ -1,0 +1,14 @@
+meta::function('serialize', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+my $partial = $$options{'-p'};
+my $criteria = join '|', @criteria;
+my @attributes = map serialize_single($_), 
+  select_keys(%$options, '-m' => 1, '--criteria' => $criteria),
+  select_keys(%$options, '-M' => 1, '--criteria' => $criteria);
+my @final_array = @{$partial ? \@attributes :
+                               [retrieve('bootstrap::initialization'),
+                                @attributes,
+                                'internal::main();', '',
+                                '__END__']};
+join "\n", @final_array;
+EOF
