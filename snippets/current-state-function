@@ -1,0 +1,5 @@
+meta::function('current-state', <<'EOF');
+my @valid_keys   = grep ! /^state::/, sort keys %data;
+my @ordered_keys = (grep(/^meta::/, @valid_keys), grep(! /^meta::/, @valid_keys));
+join "\n", map serialize_single($_), @ordered_keys;
+EOF

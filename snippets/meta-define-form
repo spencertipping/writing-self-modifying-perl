@@ -1,0 +1,11 @@
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}

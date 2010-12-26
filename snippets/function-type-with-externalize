@@ -1,0 +1,6 @@
+meta::meta('type::function', <<'EOF');
+meta::define_form 'function', sub {
+  my ($name, $value) = @_;
+  meta::externalize $name, "function::$name", eval "sub {\n$value\n}";
+};
+EOF

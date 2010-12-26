@@ -1,0 +1,9 @@
+sub define_function {
+  my ($name, $value) = @_;
+  $data{$name} = $value;
+  create_function $name, $value;
+}
+sub define_code {
+  my ($name, $value) = @_;
+  $data{$name} = $value;
+}

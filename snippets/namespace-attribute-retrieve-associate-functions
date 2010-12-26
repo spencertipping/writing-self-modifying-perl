@@ -1,0 +1,24 @@
+meta::internal_function('namespace', <<'EOF');
+my ($name) = @_;
+$name =~ s/::.*$//;
+$name;
+EOF
+
+meta::internal_function('attribute', <<'EOF');
+my ($name) = @_;
+$name =~ s/^[^:]*:://;
+$name;
+EOF
+
+meta::internal_function('retrieve', <<'EOF');
+my @results = map defined $data{$_} ? $data{$_} : file::read($_), @_;
+wantarray ? @results : $results[0];
+EOF
+
+meta::internal_function('associate', <<'EOF');
+my ($name, $value, %options) = @_;
+my $namespace = namespace($name);
+die "Namespace $namespace does not exist" unless $datatypes{$namespace};
+$data{$name} = $value;
+execute($name) if $options{'execute'};
+EOF

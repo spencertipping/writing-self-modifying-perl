@@ -1,0 +1,8 @@
+meta::internal_function('hypothetically', <<'EOF');
+my %data_backup   = %data;
+my ($side_effect) = @_;
+my $return_value  = eval {&$side_effect()};
+%data = %data_backup;
+die $@ if $@;
+$return_value;
+EOF

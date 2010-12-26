@@ -1,0 +1,10 @@
+meta::internal_function('select_keys', <<'EOF');
+my %options  = @_;
+my $criteria = $options{'--criteria'} ||
+               $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+grep /$criteria/ && (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-S'} || ! /^state::/o) &&
+                    (! $options{'-m'} ||   /^meta::/o) &&
+                    (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+EOF

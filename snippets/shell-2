@@ -1,0 +1,22 @@
+meta::function('shell', <<'EOF');
+use Term::ReadLine;
+my $term = new Term::ReadLine "$0 shell";
+$term->ornaments(0);
+my $output = $term->OUT || \*STDOUT;
+$term->Attribs->{attempted_completion_function} = \&complete;
+while (defined($_ = $term->readline("$0\$ "))) {
+  my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+  my $function_name = shift @args;
+  s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+  if ($function_name) {
+    if ($externalized_functions{$function_name}) {
+      chomp(my $result = eval {&$function_name(@args)});
+      warn $@ if $@;
+      print $output $result, "\n" unless $@;
+    } else {
+      warn "Command not found: '$function_name' (use 'ls' to see available commands)";
+    }
+  }
+}
+EOF

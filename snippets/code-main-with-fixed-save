@@ -1,0 +1,6 @@
+meta::code('main', <<'EOF');
+my $initial_state = state();
+my $command = shift @ARGV;
+print &$command(@ARGV);    # Also printing the result -- important for state
+save() if state() ne $initial_state;
+EOF

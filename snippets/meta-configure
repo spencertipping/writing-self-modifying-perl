@@ -1,0 +1,6 @@
+meta::meta('configure', <<'EOF');
+sub meta::configure {
+  my ($datatype, %options) = @_;
+  $transient{$_}{$datatype} = $options{$_} for keys %options;
+}
+EOF

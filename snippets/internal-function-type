@@ -1,0 +1,4 @@
+meta::define_form 'internal_function', sub {
+  my ($name, $value) = @_;
+  *{$name} = eval "sub {\n$value\n}";
+};

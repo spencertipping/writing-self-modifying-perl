@@ -1,0 +1,5 @@
+meta::internal_function('translate_backtrace', <<'EOF');
+my ($trace) = @_;
+$trace =~ s/\(eval (\d+)\)/$locations{$1 - 1}/g;
+$trace;
+EOF

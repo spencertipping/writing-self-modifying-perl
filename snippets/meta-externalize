@@ -1,0 +1,7 @@
+meta::meta('externalize', <<'EOF');
+sub meta::externalize {
+  my ($name, $attribute, $implementation) = @_;
+  $externalized_functions{$name} = $attribute;
+  *{$name} = $implementation;
+}
+EOF

@@ -1,0 +1,4 @@
+meta::define_form 'meta', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};

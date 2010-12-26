@@ -1,0 +1,6 @@
+meta::internal_function('execute', <<'EOF');
+my ($name, %options) = @_;
+my $namespace = namespace($name);
+eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
+warn $@ if $@ && $options{'carp'};
+EOF

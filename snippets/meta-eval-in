@@ -1,0 +1,9 @@
+sub meta::eval_in {
+  my ($what, $where) = @_;
+  # Obtain next eval-number and alias it to the designated location
+  @locations{eval('__FILE__') =~ /\(eval (\d+)\)/} = ($where);  # <- step 1
+  my $result = eval $what;                                      # <- step 2
+  $@ =~ s/\(eval \d+\)/$where/ if $@;
+  warn $@ if $@;
+  $result;
+}

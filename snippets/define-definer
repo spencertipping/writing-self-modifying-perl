@@ -1,0 +1,13 @@
+sub define_definer {
+  my ($name, $handler) = @_;
+  *{$name} = sub {
+    my ($name, $value) = @_;
+    $data{$name} = $value;
+    &$handler($name, $value);
+  }
+}
+define_definer 'define_function', \&create_function;
+define_definer 'define_code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};

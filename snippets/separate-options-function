@@ -1,0 +1,22 @@
+meta::internal_function('separate_options', <<'EOF');
+# Things with one dash are short-form options, two dashes are long-form.
+# Characters after short-form are combined; so -auv4 becomes -a -u -v -4.
+# Also finds equivalences; so --foo=bar separates into $$options{'--foo'} eq 'bar'.
+# Stops processing at the -- option, and removes it. Everything after that
+# is considered to be an 'other' argument.
+
+# The only form not supported by this function is the short-form with argument.
+# To pass keyed arguments, you need to use long-form options.
+my @parseable;
+push @parseable, shift @_ until ! @_ or $_[0] eq '--';
+
+my @singles = grep /^-[^-]/, @parseable;
+my @longs   = grep /^--/,    @parseable;
+my @others  = grep ! /^-/,   @parseable;
+my @singles = map /-(.{2,})/ ? map("-$_", split(//, $1)) : $_, @singles;
+my %options;
+  $options{$1} = $2 for grep /^([^=]+)=(.*)$/, @longs;
+++$options{$_}      for grep ! /=/, @singles, @longs;
+
+({%options}, @others, @_);
+EOF

@@ -1,0 +1,14 @@
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::code('main', <<'EOF');
+...
+save();
+EOF

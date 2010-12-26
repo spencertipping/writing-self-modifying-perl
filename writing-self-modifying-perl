@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.yySF/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.CrDU/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1561,7 +1561,7 @@ meta::section('a-big-quine', <<'__19d6137821019adbd068accb4a3fea0b');
     understand what's going on here, since this idea is integral to everything going forward.
 __19d6137821019adbd068accb4a3fea0b
 
-meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
+meta::section('adding-a-repl', <<'__8e5597413f48bb8640ee662df12a472c');
 - sc Adding a REPL | sec:adding-a-repl
   There are some ergonomic problems with the script as it stands. First, it should have a shebang line so that we don't have to use {\tt perl} explicitly. But more importantly, it should
   provide a REPL so that we don't have to keep calling it by name.
@@ -1572,7 +1572,7 @@ meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
   - s1 The {\tt data} data type | sec:adding-a-repl-the-data-data-type
     Sometimes we just want to store pieces of data without any particular meaning. We could use {\tt bootstrap::} for this, but it's cleaner to introduce a new data type altogether.
 
-    - verbatim << end
+    - perl snippets/define-form-data << end
       meta::define_form 'data', sub {
         # Define a basic editing interface:
         my ($name, $value) = @_;
@@ -1634,7 +1634,7 @@ meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
   - s1 The {\tt shell} function | sec:adding-a-repl-the-shell-function
     The idea here is to listen for commands from the user and simulate the \verb|@ARGV| interaction pattern. Readline is the simplest way to go about this:
 
-    - verbatim << end
+    - perl snippets/shell-function-1 << end
       meta::function('shell', <<'EOF');
       use Term::ReadLine;
       my $term = new Term::ReadLine "$0 shell";
@@ -1663,7 +1663,7 @@ meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
     If you have the GNU Readline library installed (Perl defaults to something else otherwise), you can get tab-autocompletion just like you can in Bash. Here's a {\tt complete} function
     written by my wife Joyce, modified slightly to make sense with this implementation:
 
-    - verbatim << end
+    - perl snippets/complete-function-1 << end
       meta::function('complete', <<'EOF');
       my @attributes = sort keys %data;
 
@@ -1910,9 +1910,9 @@ meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
 
       __END__
     - end
-__9e6b6508b59b6e5c3b0355635d60c292
+__8e5597413f48bb8640ee662df12a472c
 
-meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
+meta::section('archiving-state', <<'__9f77a9595c71bd1b32b992011f850357');
 - sc Archiving state | sec:archiving-state
   Suppose you're about to do something risky with a script and you want to take a snapshot that you can restore to. You could copy into another file, but that's a brute-force approach and it
   requires you to exit the script's shell. Better is to have some kind of internal state management, and that's where explicit states come into play.
@@ -1920,7 +1920,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
   Remember that \verb|%data| is just a variable; we can do all of the usual things with it. We can store a state by doing a partial serialization into an attribute, and we can restore from
   that state by {\tt eval}ing that attribute. To do this we're going to need another namespace.
 
-  - verbatim << end
+  - perl snippets/state-type << end
     meta::meta('type::state', <<'EOF');
     # No action when a state is defined
     meta::define_form 'state', \&meta::bootstrap::implementation;
@@ -1939,7 +1939,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
     in the {\tt state::} namespace.\footnote{If some states contained others, the script size would grow exponentially in the number of states.} We'll need to write a separate function to
     serialize just what we want:
 
-    - verbatim << end
+    - perl snippets/current-state-function << end
       meta::function('current-state', <<'EOF');
       my @valid_keys   = grep ! /^state::/, sort keys %data;
       my @ordered_keys = (grep(/^meta::/, @valid_keys), grep(! /^meta::/, @valid_keys));
@@ -1949,7 +1949,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
 
     \noindent And here's a {\tt save-state} function to automate the state creation process:
 
-    - verbatim << end
+    - perl snippets/save-state-function << end
       meta::function('save-state', <<'EOF');
       my ($state_name) = @_;
       associate("state::$state_name", &{'current-state'}());
@@ -1961,7 +1961,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
     want to have stray \verb|%data| elements or externalized functions. The easiest way to defend against errors is to save the current state before applying a new one. Here's the
     implementation of {\tt load-state}:
 
-    - verbatim << end
+    - perl snippets/load-state-function << end
       meta::function('load-state', <<'EOF');
       my ($state_name) = @_;
       my $state = retrieve("state::$state_name");
@@ -1980,7 +1980,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
     Related to state management is a function called {\tt hypothetically}, which lets you try something out and then revert. It's used internally to examine the state of a modified copy
     without actually committing changes.\footnote{This is covered in \Ref{chapter}{sec:cloning-and-inheritance}.} Here's how it's defined:
 
-    - verbatim << end
+    - perl snippets/hypothetically-function << end
       meta::internal_function('hypothetically', <<'EOF');
       my %data_backup   = %data;
       my ($side_effect) = @_;
@@ -2001,7 +2001,7 @@ meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
       my $y = retrieve('data::foo');
       # now $x eq '10' and $y is undef
     - end
-__c4e5418031a886a29984fcfab0d474fa
+__9f77a9595c71bd1b32b992011f850357
 
 meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
 - sc Building the interface | sec:building-the-interface
@@ -2153,7 +2153,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__b1a4c2d5bfe45f8442c63a2f3fae4335');
+meta::section('cloning-and-inheritance', <<'__01e206f8d68b115decd96ba8a4b9aa28');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2183,7 +2183,7 @@ meta::section('cloning-and-inheritance', <<'__b1a4c2d5bfe45f8442c63a2f3fae4335')
     We can now use \verb|%transient| to store things about data types. For convenience let's define {\tt meta::configure} to do this for us:\footnote{For some reason I decided to store the
     keys in the odd order of {\tt option}-{\tt namespace} instead of the other way around. I'm still not sure why I did it this way, but it doesn't seem to cause problems.}
 
-    - verbatim << end
+    - perl snippets/meta-configure << end
       meta::meta('configure', <<'EOF');
       sub meta::configure {
         my ($datatype, %options) = @_;
@@ -2220,9 +2220,66 @@ meta::section('cloning-and-inheritance', <<'__b1a4c2d5bfe45f8442c63a2f3fae4335')
       ...
       EOF
     - end
-__b1a4c2d5bfe45f8442c63a2f3fae4335
 
-meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
+  - s1 Extensions to {\tt serialize} | sec:cloning-and-inheritance-extensions-to-serialize
+    {\tt serialize} needs to be able to give us a bundle of code to create just the attributes that should be inherited. While we're at it, it would also be nice if it handed us just the {\tt
+    meta::} attributes and then just the non-{\tt meta::} attributes. This way we can make sure that the {\tt meta::} attributes didn't break anything and bail out early if they did.
+
+    None of this is particularly challenging, but given that we're going to invoke {\tt serialize} externally we should probably fix the \verb|%options| stuff. (The last thing we want to write
+    is something like \verb|qx($script serialize partial 1 meta 1 inheritable 1)|). What we need is an adapter that turns command-line options into Perl hashes.\footnote{OK, I'm making a jump
+    here. Later it will become clearer why it's good to do it this way.} Here's a function that uses {\tt Getopt}-style parsing:
+
+    - perl snippets/separate-options-function << end
+      meta::internal_function('separate_options', <<'EOF');
+      # Things with one dash are short-form options, two dashes are long-form.
+      # Characters after short-form are combined; so -auv4 becomes -a -u -v -4.
+      # Also finds equivalences; so --foo=bar separates into $$options{'--foo'} eq 'bar'.
+      # Stops processing at the -- option, and removes it. Everything after that
+      # is considered to be an 'other' argument.
+
+      # The only form not supported by this function is the short-form with argument.
+      # To pass keyed arguments, you need to use long-form options.
+      my @parseable;
+      push @parseable, shift @_ until ! @_ or $_[0] eq '--';
+
+      my @singles = grep /^-[^-]/, @parseable;
+      my @longs   = grep /^--/,    @parseable;
+      my @others  = grep ! /^-/,   @parseable;
+      my @singles = map /-(.{2,})/ ? map("-$_", split(//, $1)) : $_, @singles;
+      my %options;
+        $options{$1} = $2 for grep /^([^=]+)=(.*)$/, @longs;
+      ++$options{$_}      for grep ! /=/, @singles, @longs;
+
+      ({%options}, @others, @_);
+      EOF
+    - end
+
+    The output of this function is a reference to a hash of any keyword arguments (where short-form arguments are treated as increments) followed by any non-switch arguments (either because
+    they came after \verb|--| or because they didn't start with a dash at all. For example, processing the arguments \verb|-xy --z=foo bar| would yield
+    \verb|({-x => 1, -y => 1, --z => foo}, bar)|.\footnote{Given the similarity, I don't remember why I dind't just use {\tt Getopt::Long} for this stuff. I think I must have been having a NIH
+    day.}
+
+    Given the ability to pipe options into {\tt serialize} on the command-line, we just need to have it support a reasonably flexible selection interface. We'll later need to have {\tt ls}
+    support the same options, so let's factor the key selector into its own function:
+
+    - perl snippets/select-keys-function << end
+      meta::internal_function('select_keys', <<'EOF');
+      my %options  = @_;
+      my $criteria = $options{'--criteria'} ||
+                     $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+      grep /$criteria/ && (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                          (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                          (! $options{'-S'} || ! /^state::/o) &&
+                          (! $options{'-m'} ||   /^meta::/o) &&
+                          (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+      EOF
+    - end
+
+    This function takes the \verb|%options| hash output by \verb|separate_options| as input and returns a list of keys into \verb|%data|. The somewhat odd logical structure of the {\tt grep}
+    predicate is just implication: ``if \verb|$options{'-i'}| is set, then the key's namespace must be inheritable.''
+__01e206f8d68b115decd96ba8a4b9aa28
+
+meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces
   Our script is fairly awesome so far. It prevents us from creating attributes in namespaces that don't exist, since that would cause incorrect serialization, it verifies before it saves, etc.
   But there's one problem. Take a look at the error messages we get:
@@ -2255,7 +2312,7 @@ meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
   There's a beautiful hack to handle the {\tt eval} processing. Watch this (also in {\tt bootstrap::initialization}):\footnote{It actually doesn't have to be inside the bootstrap code, but it
   doesn't change often and is useful to have around, so I decided to put it there to save time.}
 
-  - verbatim << end
+  - perl snippets/meta-eval-in << end
     sub meta::eval_in {
       my ($what, $where) = @_;
       # Obtain next eval-number and alias it to the designated location
@@ -2270,7 +2327,7 @@ meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
   By {\tt eval}ing \verb|__FILE__|, we get the current eval number. So the next one will be whatever we {\tt eval} next. This means that in the shell sessions above, \verb|%locations| contains
   a mapping from {\tt 9} to \verb|internal_function::associate|. Here's the function that converts an {\tt eval} index into an attribute name:
 
-  - verbatim << end
+  - perl snippets/translate-backtrace-function << end
     meta::internal_function('translate_backtrace', <<'EOF');
     my ($trace) = @_;
     $trace =~ s/\(eval (\d+)\)/$locations{$1 - 1}/g;
@@ -2283,7 +2340,7 @@ meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
 
   Now that we have this mechanism, we can go back and convert {\tt eval} calls into \verb|meta::eval_in|:
 
-  - verbatim << end
+  - perl snippets/using-eval-in << end
     meta::define_form 'function', sub {
       my ($name, $value) = @_;
       meta::externalize $name, "function::$name",
@@ -2296,9 +2353,9 @@ meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
         meta::eval_in("sub {\n$value\n}", "internal_function::$name");
     };
   - end
-__c84e542eb3f1842442f3b16d2c7a9057
+__e1f1d6a9b2bd5065b8dd216b3900d1fb
 
-meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
+meta::section('introduction', <<'__a9deb7a2f8f6ce1c56e7402dc75a5a56');
 - sc Introduction | sec:introduction
   I've gotten a lot of WTF's\footnote{\url{http://www.osnews.com/story/19266/WTFs_m}} about self-modifying Perl scripts. Rightfully so, too. There's no documentation (until now), the interface
   is opaque and not particularly portable, and they aren't even very human-readable when edited:
@@ -2320,12 +2377,11 @@ meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
     ...
   - end
 
-  Despite these shortcomings, though, I think they're fairly useful. So rather than vindicate the idea (which is probably irredeemable), I've written this guide to dive into the mayhem and go
-  from zero to a self-modifying Perl script. At the end, you'll have a script that is functionally equivalent to the {\tt object} script, which I use as the prototype for all of the other
-  ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.}
-
-  This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it. Proceed only with fortitude, determination, and Perl v5.10.
-__5bfc9fc5db0cf1868bf00937453017f1
+  Despite these shortcomings, though, I think they're fairly useful (this guide is a self-modifying Perl file, in fact). At the end, you'll have a script that is functionally equivalent to the
+  {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.}
+  
+  Proceed only with fortitude, determination, and Perl v5.10.
+__a9deb7a2f8f6ce1c56e7402dc75a5a56
 
 meta::section('main', <<'__9e953c309b71c4bb194d97bd2e3a0888');
 - documentclass report
@@ -2355,7 +2411,7 @@ meta::section('main', <<'__9e953c309b71c4bb194d97bd2e3a0888');
 - end
 __9e953c309b71c4bb194d97bd2e3a0888
 
-meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
+meta::section('namespaces', <<'__bf032d38e23448ba0cde689c132c3cec');
 - sc Namespaces | sec:namespaces
   It's a bummer to have to add a new {\tt eval} line for every function we want to define. We could merge all of the functions into a single hash key, but that's too easy.\footnote{Aside from
   being a lame cop-out, it also limits extensibility, as I'll explain later.} More appropriate is to assign a type to each hash key. This can be encoded in the name. For example, we might
@@ -2365,7 +2421,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
     set  -> function::set
     cat  -> function::cat
     edit -> function::edit
-    code -> code::code
+    code -> code::main
   - end
 
   For reasons that I'll explain in a moment, we no longer need {\tt bootstrap}. The rules governing these types are:
@@ -2391,7 +2447,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 
     \noindent and infer its name from the key. Perl is helpful here by giving us first-class access to the symbol table:
 
-    - verbatim << end
+    - perl snippets/create-function << end
       sub create_function {
         my ($name, $body) = @_;
         *{$name} = eval "sub {\n$body\n}";
@@ -2408,7 +2464,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
     We can't observe when a new key is added to \verb|%data| as things are now. Fortunately this is easy to fix. Instead of writing lines that read \verb|$data{...} = ...|, we can write some
     functions that perform this assignment for us, and in the process we can handle any side-effects like function creation. Here's a naive implementation:
 
-    - verbatim << end
+    - perl snippets/define-function-define-code << end
       sub define_function {
         my ($name, $value) = @_;
         $data{$name} = $value;
@@ -2422,7 +2478,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 
     Since we're always going to assign into \verb|%data|, we can abstract that step out:
 
-    - verbatim << end
+    - perl snippets/define-definer << end
       sub define_definer {
         my ($name, $handler) = @_;
         *{$name} = sub {
@@ -2444,7 +2500,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
     At this point we've got the foundation for namespace creation. This is actually used with few modifications in the Perl objects I use on a regular basis. Here's \verb|meta::define_form|
     lifted from {\tt object}:
 
-    - verbatim << end
+    - perl snippets/meta-define-form << end
       sub meta::define_form {
         my ($namespace, $delegate) = @_;
         $datatypes{$namespace} = $delegate;
@@ -2463,7 +2519,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
     that's different is \verb|chomp $value|, which is used because heredocs put an extra newline on the end of strings. \verb|meta::define_form| has the same interface as
     \verb|define_definer|:
 
-    - verbatim << end
+    - perl snippets/meta-define-form-function-code << end
       meta::define_form 'function', \&create_function;
       meta::define_form 'code', sub {
         my ($name, $value) = @_;
@@ -2600,7 +2656,7 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 
     This condenses {\tt code::main} by a lot:
 
-    - verbatim << end
+    - perl snippets/bootstrapped-code-main << end
       meta::code('main', <<'EOF');
       # Run specified command:
       my $command = shift @ARGV;
@@ -2718,9 +2774,9 @@ meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 
       __END__
     - end
-__bfa4f788a9b156a8585a2d2d74f18623
+__bf032d38e23448ba0cde689c132c3cec
 
-meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
+meta::section('serialization', <<'__bf6841f10301900703a4886048832811');
 - sc Serialization | sec:serialization
   Earlier I alluded to a glaring problem with these scripts as they stand. The issue is the {\tt EOF} marker we've been using. Here's what happens if we put a line containing {\tt EOF} into an
   attribute:
@@ -2755,7 +2811,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
     There isn't a particularly compelling reason to inline the serialization logic in {\tt code::main}. Since we have a low-overhead way of defining functions, let's make a {\tt serialize}
     function to return the state of a script as a string, along with a helper method \verb|serialize_single| to handle one attribute at a time:
 
-    - verbatim << end
+    - perl snippets/serialize-and-serialize-single << end
       meta::function('serialize', <<'EOF');
       my @keys = sort keys %data;
       join "\n", $data{'bootstrap::initialization'},
@@ -2789,7 +2845,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
     - s2 Implementing the Fowler-Noll Vo hash | sec:serialization-verifying-fnv-hash
       At its core, the FNV-1a hash\footnote{\url{http://en.wikipedia.org/wiki/Fowler-Noll-Vo_hash_function}} is just a multiply-xor in a loop. Generally it's written like this:
 
-      - verbatim << end
+      - cpp snippets/fnv-hash.c << end
         int hash (char *s) {
           const int fnv_prime  = 16777619;      // Magic numbers
           const int fnv_offset = 2166136261;
@@ -2806,7 +2862,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
       In Perl it's advantageous to vectorize this function for performance reasons. It isn't necessarily sound to do this, but empirically the results seem reasonably well-distributed. Here's
       the function I ended up with:
 
-      - verbatim << end
+      - perl snippets/fnv-hash-function << end
         meta::function('fnv_hash', <<'EOF');
         my ($data) = @_;
 
@@ -2823,7 +2879,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
       This produces a 32-bit hash. Ideally we have something of at least 128 bits, just to reduce the likelihood of collision. When I was writing the 128-bit hash I went a bit overboard with
       hash chaining (which doesn't matter because it isn't a cryptographic hash), but here's the full hash:
 
-      - verbatim << end
+      - perl snippets/fast-hash-function << end
         meta::function('fast_hash', <<'EOF');
         my ($data)     = @_;
         my $piece_size = length($data) >> 3;
@@ -2847,7 +2903,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
       It's probably fine to use random numbers for EOF markers, but I prefer using a hash of the content. While it's probably about the same either way, it intuitively feels less likely that a
       string will contain its own hash.\footnote{And as we all know, intuition is key when making decisions in math and computer science...}
 
-      - verbatim << end
+      - perl snippets/serialize-single-hash << end
         meta::function('serialize_single', <<'EOF');
         my ($namespace, $name) = split /::/, $_[0], 2;
         my $marker = '__' . fast_hash($data{$_[0]});
@@ -2861,7 +2917,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
     - s2 Implementing the {\tt state} function | sec:serialization-verifying-state-function
       The ``state'' of an object is just the hash of its serialization. (This is why it's useful to have the serialization logic factored out.)
 
-      - verbatim << end
+      - perl snippets/state-function-hash << end
         meta::function('state', <<'EOF');
         fast_hash(serialize());
         EOF
@@ -2871,7 +2927,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
       {\tt verify} writes a temporary copy, checks its checksum, and returns {\tt 0} or {\tt 1} depending on whether the checksum came out invalid or valid, respectively. If invalid, it leaves
       the temporary file there for debugging purposes.
 
-      - verbatim << end
+      - perl snippets/verify-function << end
         meta::function('verify', <<'EOF');
         my $serialized_data = serialize();
         my $state           = state();
@@ -2893,7 +2949,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
   - s1 Save logic | sec:serialization-save-logic
     Now we can use {\tt verify} before overwriting \verb|$0|.
 
-    - verbatim << end
+    - perl snippets/save-function-and-broken-usage << end
       meta::function('save', <<'EOF');
       if (verify()) {
         open my $file, '>', $0;
@@ -2927,7 +2983,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
 
     That's not what we want at all. There's no reason to call {\tt save} unless a modification has occurred, so we can make this modification to {\tt code::main}:
 
-    - verbatim << end
+    - perl snippets/code-main-with-fixed-save << end
       meta::code('main', <<'EOF');
       my $initial_state = state();
       my $command = shift @ARGV;
@@ -3083,9 +3139,9 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
 
       __END__
     - end
-__8e4c94639b3eaee761268dc55e169ba6
+__bf6841f10301900703a4886048832811
 
-meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
+meta::section('some-improvements', <<'__0d7075832776a7c9e213b844476f127d');
 - sc Some improvements | sec:some-improvements
   Let's step back for a minute and improve things a bit in preparation for some real awesomeness. There are few places that could use improvement. First, there isn't a way to get a list of
   defined attributes on an object without opening it by hand. Second, the interface exposes too many functions to the user; in particular, things like {\tt complete} aren't useful from the
@@ -3096,7 +3152,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
     applies filters to the listing, much like the UNIX {\tt ls} command. I'll go over how to implement this stuff in a later chapter.} Related are {\tt cp} and {\tt rm}, which do what you
     would expect:
 
-    - verbatim << end
+    - perl snippets/ls-cp-and-rm-functions << end
       meta::function('ls', <<'EOF');
       join "\n", sort keys %data;
       EOF
@@ -3113,7 +3169,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
     Another useful function is {\tt create}, which opens an editor for a new attribute:\footnote{We can already do this with {\tt edit}, but {\tt object} doesn't let you edit attributes that
     don't exist. I'll include that behavior in these scripts before too long.}
 
-    - verbatim << end
+    - perl snippets/create-function << end
       meta::function('create', <<'EOF');
       return edit($_[0]) if exists $data{$_[0]};
       $data{$_[0]} = $_[1] || "# Attribute $_[0]";
@@ -3153,7 +3209,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
 
     \noindent And here's the new data type:
 
-    - verbatim << end
+    - perl snippets/internal-function-type << end
       meta::define_form 'internal_function', sub {
         my ($name, $value) = @_;
         *{$name} = eval "sub {\n$value\n}";
@@ -3164,8 +3220,8 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
 
     We'll need to update {\tt shell} and {\tt complete} to leverage this new information:
 
-    - verbatim << end
-      # shell function:
+    - perl snippets/shell-2 << end
+      meta::function('shell', <<'EOF');
       use Term::ReadLine;
       my $term = new Term::ReadLine "$0 shell";
       $term->ornaments(0);
@@ -3186,8 +3242,11 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
           }
         }
       }
+      EOF
+    - end
 
-      # complete function:
+    - perl snippets/complete-2 << end
+      meta::function('complete', <<'EOF');
       my @functions  = sort keys %externalized_functions;
       my @attributes = sort keys %data;
       sub match {
@@ -3212,9 +3271,10 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
         # Start of line, so it's a function.
         match ($text, @functions);
       }
+      EOF
     - end
 
-  - Separate attributes for data types | sec:some-improvements-separate-attributes-for-data-types
+  - s1 Separate attributes for data types | sec:some-improvements-separate-attributes-for-data-types
     It's cumbersome to have all of the data types go in {\tt bootstrap::initialization}. Better is to break the code into separate attributes. To do this we'll need to restructure the scripts
     a little bit.
 
@@ -3240,7 +3300,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
 
     Here's what the new {\tt serialize} looks like:
 
-    - verbatim << end
+    - perl snippets/serialize-with-internal-main << end
       my @keys = sort keys %data;
       join "\n", $data{'bootstrap::initialization'},
                  map(serialize_single($_),
@@ -3253,7 +3313,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
     And here's the definition for {\tt meta::} (it's identical to the one we used to have for {\tt code::}). This is the only \verb|define_form| invocation in {\tt bootstrap::initialization};
     the others now reside in their own attributes.
 
-    - verbatim << end
+    - perl snippets/define-form-meta << end
       meta::define_form 'meta', sub {
         my ($name, $value) = @_;
         eval $value;
@@ -3279,7 +3339,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
       While we're cleaning up meta-stuff, it's worth thinking about factoring out externalization. There isn't a particularly good reason to keep manually assigning to
       \verb|%externalized_functions|; better is to abstract this detail into a function. To do this, we'll want a meta-library:
 
-      - verbatim << end
+      - perl snippets/meta-externalize << end
         meta::meta('externalize', <<'EOF');
         sub meta::externalize {
           my ($name, $attribute, $implementation) = @_;
@@ -3292,7 +3352,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
       This meta-definition is available to the others because it sorts first.\footnote{Which is a horrible way to manage dependencies, but it's worked so far.} Now instead of manually
       externalizing stuff, data types like {\tt function::} and {\tt data::} can just use {\tt meta::externalize}:
 
-      - verbatim << end
+      - perl snippets/function-type-with-externalize << end
         meta::meta('type::function', <<'EOF');
         meta::define_form 'function', sub {
           my ($name, $value) = @_;
@@ -3311,7 +3371,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
     out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these functions are taken directly
     from {\tt object}.}
 
-    - verbatim << end
+    - perl snippets/namespace-attribute-retrieve-associate-functions << end
       meta::internal_function('namespace', <<'EOF');
       my ($name) = @_;
       $name =~ s/::.*$//;
@@ -3342,7 +3402,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
       One problem with the way we've defined {\tt cp} is that you'll have to close and reopen the shell to get new functions to take effect. This is because while we're assigning into
       \verb|%data|, we're not calling the handler associated with the namespace. The simplest way to fix this is to dynamically invoke that handler:
 
-      - verbatim << end
+      - perl snippets/execute-function << end
         meta::internal_function('execute', <<'EOF');
         my ($name, %options) = @_;
         my $namespace = namespace($name);
@@ -3649,7 +3709,7 @@ meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
 
       __END__
     - end
-__948169b120a665bb2669df5878f114f5
+__0d7075832776a7c9e213b844476f127d
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');

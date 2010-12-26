@@ -1,0 +1,11 @@
+meta::define_form 'function', sub {
+  my ($name, $value) = @_;
+  meta::externalize $name, "function::$name",
+    meta::eval_in("sub {\n$value\n}", "function::$name");
+};
+
+meta::define_form 'internal_function', sub {
+  my ($name, $value) = @_;
+  *{$name} =
+    meta::eval_in("sub {\n$value\n}", "internal_function::$name");
+};

@@ -1,0 +1,3 @@
+meta::function('state', <<'EOF');
+fast_hash(serialize());
+EOF

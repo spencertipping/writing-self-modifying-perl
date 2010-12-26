@@ -1,0 +1,13 @@
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_), grep !/^code::/, @keys),
+           map(serialize_single($_), grep  /^code::/, @keys),
+           "\n__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . int(rand(1 << 31));
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF

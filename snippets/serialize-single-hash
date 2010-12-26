@@ -1,0 +1,5 @@
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF

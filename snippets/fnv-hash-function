@@ -1,0 +1,11 @@
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF

@@ -1,0 +1,11 @@
+meta::function('ls', <<'EOF');
+join "\n", sort keys %data;
+EOF
+
+meta::function('cp', <<'EOF');
+$data{$_[1]} = $data{$_[0]};
+EOF
+
+meta::function('rm', <<'EOF');
+delete @data{@_};
+EOF

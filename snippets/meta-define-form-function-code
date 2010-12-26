@@ -1,0 +1,5 @@
+meta::define_form 'function', \&create_function;
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};

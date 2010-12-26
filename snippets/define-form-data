@@ -1,0 +1,9 @@
+meta::define_form 'data', sub {
+  # Define a basic editing interface:
+  my ($name, $value) = @_;
+  *{$name} = sub {
+    my ($command, $value) = @_;
+    return $data{"data::$name"} unless @_;
+    $data{"data::$name"} = $value if $command eq '=';
+  };
+};

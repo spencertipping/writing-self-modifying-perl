@@ -1,0 +1,7 @@
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_),
+             grep( /^meta::/, @keys),
+             grep(!/^meta::/, @keys)),
+           "internal::main();",
+           "__END__";

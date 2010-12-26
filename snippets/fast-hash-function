@@ -1,0 +1,15 @@
+meta::function('fast_hash', <<'EOF');
+my ($data)     = @_;
+my $piece_size = length($data) >> 3;
+
+my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                  map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+my @hashes     = (fnv_hash($pieces[0]));
+
+push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+
+$hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+$hashes[0]  ^= $hashes[8];
+
+sprintf '%08x' x 4, @hashes[0 .. 3];
+EOF

@@ -1,0 +1,10 @@
+meta::function('load-state', <<'EOF');
+my ($state_name) = @_;
+my $state = retrieve("state::$state_name");
+&{'save-state'}('_');     # Make a backup
+delete $data{$_} for grep ! /^state::/, keys %data;
+%externalized_functions = ();
+eval($state);             # Apply the new state
+warn $@ if $@;
+verify();                 # Make sure it worked
+EOF

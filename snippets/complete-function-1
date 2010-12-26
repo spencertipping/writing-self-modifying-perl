@@ -1,0 +1,23 @@
+meta::function('complete', <<'EOF');
+my @attributes = sort keys %data;
+
+sub match {
+  my ($text, @options) = @_;
+  my @matches = sort grep /^$text/, @options;
+
+  if    (@matches == 0) {return undef;}
+  elsif (@matches == 1) {return $matches [0];}
+  elsif (@matches >  1) {
+    return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+  }
+}
+
+sub longest {
+  my ($s1, $s2) = @_; 
+  return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+  return ''; 
+}
+
+my ($text, $line) = @_;
+match ($text, @attributes);
+EOF

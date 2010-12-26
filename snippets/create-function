@@ -1,0 +1,5 @@
+meta::function('create', <<'EOF');
+return edit($_[0]) if exists $data{$_[0]};
+$data{$_[0]} = $_[1] || "# Attribute $_[0]";
+edit($_[0]);
+EOF

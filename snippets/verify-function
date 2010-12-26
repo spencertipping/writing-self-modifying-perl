@@ -1,0 +1,16 @@
+meta::function('verify', <<'EOF');
+my $serialized_data = serialize();
+my $state           = state();
+
+my $temporary_filename = "$0.$state";
+open my $file, '>', $temporary_filename;
+print $file $serialized_data;
+close $file;
+chmod 0700, $temporary_filename;
+
+chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+
+my $result = $observed_state eq $state;
+unlink $temporary_filename if $result;
+$result;
+EOF

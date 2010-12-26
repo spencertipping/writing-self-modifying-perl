@@ -1,0 +1,4 @@
+meta::function('save-state', <<'EOF');
+my ($state_name) = @_;
+associate("state::$state_name", &{'current-state'}());
+EOF

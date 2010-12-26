@@ -1,0 +1,4 @@
+meta::meta('type::state', <<'EOF');
+# No action when a state is defined
+meta::define_form 'state', \&meta::bootstrap::implementation;
+EOF
