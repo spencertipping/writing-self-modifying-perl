@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.06ps/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl._dyP/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2153,7 +2153,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__dc47f9022e795924da83e4935b9a46f8');
+meta::section('cloning-and-inheritance', <<'__74035017b36d8f841dbf19cbc34f58ca');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2481,7 +2481,40 @@ meta::section('cloning-and-inheritance', <<'__dc47f9022e795924da83e4935b9a46f8')
         &{'update-from'}(@_, grep s/^parent:://o, sort keys %data);
         EOF
       - end
-__dc47f9022e795924da83e4935b9a46f8
+
+  - s1 {\tt clone} and {\tt child} | sec:cloning-and-inheritance-clone-and-child
+    As things stand creating children from an object is a bit cumbersome. We have to manually copy the object and then run {\tt update-from} once to get the parent to work out, which seems
+    like too much work. Let's take care of copying first by creating a {\tt clone} function:
+
+    - perl snippets/clone-function << end
+      meta::function('clone', <<'EOF');
+      open my $file, '>', $_[0];
+      print $file serialize();
+      close $file;
+      chmod 0700, $file;
+      EOF
+    - end
+
+    Now you can clone an object as it exists at any given moment. More interesting, though, is the related {\tt child} function, which creates an object already setup for inheritance:
+
+    - perl snippets/child-function << end
+      meta::function('child', <<'EOF');
+      my ($child_name) = @_;
+      clone($child_name);
+      qx($child_name update-from $0 -n);
+      EOF
+    - end
+
+    {\tt object} implements this function; so, for example, you could inherit from it like this:
+
+    - verbatim << end
+      $ /path/to/object child ./foo
+      $ ./foo update -n
+      $ ./foo ls -a parent::
+      parent::/path/to/object
+      $
+    - end
+__74035017b36d8f841dbf19cbc34f58ca
 
 meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces

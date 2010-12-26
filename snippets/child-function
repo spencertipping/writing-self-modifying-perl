@@ -1,0 +1,5 @@
+meta::function('child', <<'EOF');
+my ($child_name) = @_;
+clone($child_name);
+qx($child_name update-from $0 -n);
+EOF
