@@ -1,0 +1,2393 @@
+\documentclass{report}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm,pxfonts,listings,color}
+\usepackage[colorlinks]{hyperref}
+\definecolor{gray}{rgb}{0.6,0.6,0.6}
+
+\usepackage{caption}
+\DeclareCaptionFormat{listing}{\llap{\color{gray}#1\hspace{10pt}}\tt{}#3}
+\captionsetup[lstlisting]{format=listing, singlelinecheck=false, margin=0pt, font={bf}}
+
+\lstset{columns=fixed,basicstyle={\tt},numbers=left,firstnumber=auto,basewidth=0.5em,showstringspaces=false,numberstyle={\color{gray}\scriptsize}}
+
+\newcommand{\Ref}[2]{\hyperref[#2]{#1 \ref*{#2}}}
+
+\lstnewenvironment{asmcode}       {}{}
+\lstnewenvironment{cppcode}       {\lstset{language=c++}}{}
+\lstnewenvironment{javacode}      {\lstset{language=java}}{}
+\lstnewenvironment{javascriptcode}{}{}
+\lstnewenvironment{htmlcode}      {\lstset{language=html}}{}
+\lstnewenvironment{perlcode}      {\lstset{language=perl}}{}
+\lstnewenvironment{resourcecode}{}{}
+
+\title{Writing Self-Modifying Perl}
+\author{Spencer Tipping}
+
+\begin{document}
+\maketitle{}
+\tableofcontents{}
+
+\chapter{Introduction}\label{sec:introduction}
+  I've gotten a lot of WTF's\footnote{\url{http://www.osnews.com/story/19266/WTFs_m}} about self-modifying Perl scripts. Rightfully so, too. There's no documentation (until now), the interface
+  is opaque and not particularly portable, and they aren't even very human-readable when edited:
+
+\begin{verbatim}
+...
+meta::define_form 'meta', sub {
+  my ($name, $value) = @_;
+  meta::eval_in($value, "meta::$name");
+};
+meta::meta('configure', <<'__25976e07665878d3fae18f050160343f');
+# A function to configure transients. Transients can be used to store any number of
+# different things, but one of the more common usages is type descriptors.
+sub meta::configure {
+  my ($datatype, %options) = @_;
+  $transient{$_}{$datatype} = $options{$_} for keys %options;
+}
+__25976e07665878d3fae18f050160343f
+...
+\end{verbatim}
+
+  Despite these shortcomings, though, I think they're fairly useful (this guide is a self-modifying Perl file, in fact). At the end, you'll have a script that is functionally equivalent to the
+  {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.} The full source code for
+  this guide and accompanying examples is available at \url{http://github.com/spencertipping/writing-self-modifying-perl}.
+  
+  Proceed only with fortitude, determination, and Perl v5.10.
+
+\part{The Basics}
+\chapter{A Big Quine}\label{sec:a-big-quine}
+  At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
+
+\begin{enumerate}
+\item{Self-modifying Perl scripts print into their own files rather than to standard output.}
+\item{They print modified versions of themselves, not the original source.}
+\end{enumerate}
+
+  \noindent If we're going to write such a script, it's good to start with a simple quine.
+
+\section{A basic quine}\label{sec:a-basic-quine}
+    Some languages make quine-writing easier than others. Perl actually makes it very simple. Here's one:
+
+\lstset{caption={examples/quine},name={examples/quine}}\begin{perlcode}
+my $code = <<'EOF';
+print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
+EOF
+print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code; \end{perlcode}
+
+    \noindent The logic is fairly straightforward, though it may not look like it. We're quoting a bunch of stuff using \verb|<<'EOF'|,\footnote{The single-quoted heredoc form doesn't do any
+    interpolation inside the document, which is ideal since we don't want to worry about escaping stuff.} and storing that into a string. We then put the quoted content outside of the heredoc
+    to let it execute. The duplication is necessary; we want to quote the content and then run it.\footnote{Later on I'll use {\tt eval} to reduce the amount of duplication.} The key is this
+    line:
+
+\begin{verbatim}
+print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
+\end{verbatim}
+
+    \noindent This code prints the setup to define a new variable \verb|$code| and prints its existing content after that.
+
+\section{Reducing duplication}\label{sec:reducing-duplication}
+    We don't want to write everything in our quine twice. Rather, we want to store most stuff just once and have a quine that scales well. The easiest way to do this is to use a hash to store
+    the state, and serialize each key of the hash in the self-printing code. So instead of creating \verb|$code|, we'll create \verb|%data|:
+
+\lstset{caption={examples/quine-with-data},name={examples/quine-with-data}}\begin{perlcode}
+my %data;
+$data{code} = <<'EOF';
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{code};
+EOF
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{code}; \end{perlcode}
+
+    \noindent This is a good start. Here's how to add attributes without duplication:
+
+\lstset{caption={examples/quine-with-data-and-foo},name={examples/quine-with-data-and-foo}}\begin{perlcode}
+my %data;
+$data{foo} = <<'EOF';
+a string
+EOF
+$data{code} = <<'EOF';
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{code};
+EOF
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{code}; \end{perlcode}
+
+\section{Using {\tt eval}}\label{sec:using-eval}
+    The business about duplicating \verb|$data{code}| is easily remedied by just {\tt eval}ing \verb|$data{code}| at the end. This requires the {\tt eval} section to be duplicated, but it's
+    smaller than \verb|$data{code}|. Here's the quine with that transformation:\footnote{Note that these quines might not actually print themselves identically due to hash-key ordering. This
+    is fine; all of the keys are printed before we use them.}
+
+\lstset{caption={examples/quine-with-data-and-eval},name={examples/quine-with-data-and-eval}}\begin{perlcode}
+my %data;
+$data{foo} = <<'EOF';
+a string
+EOF
+$data{code} = <<'EOF';
+print 'my %data;', "\n";
+print '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $data{bootstrap};
+EOF
+$data{bootstrap} = <<'EOF';
+eval $data{code};
+EOF
+eval $data{code}; \end{perlcode}
+
+    \noindent The advantage of this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
+    understand what's going on here, since this idea is integral to everything going forward.
+\chapter{Building the interface}\label{sec:building-the-interface}
+  Now that we've got attribute storage working, let's build a command-line interface so that we don't have to edit these files by hand anymore. There are a couple of things that need to
+  happen. First, we need to get these scripts to overwrite themselves instead of printing to standard output. Second, we need a way to get and set entries in \verb|%data|. Starting with the
+  quine from the last section, here's one way to go about it:
+
+\lstset{caption={examples/cli-basic},name={examples/cli-basic}}\begin{perlcode}
+my %data;
+$data{cat} = <<'EOF';
+sub cat {
+  print join "\n", @data{@_};
+}
+EOF
+$data{set} = <<'EOF';
+sub set {
+  $data{$_[0]} = join '', <STDIN>;
+}
+EOF
+$data{code} = <<'EOF';
+# Eval functions into existence:
+eval $data{cat};
+eval $data{set};
+
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $fh, '>', $0;
+print $fh 'my %data;', "\n";
+print $fh '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $fh $data{bootstrap};
+close $fh;
+EOF
+$data{bootstrap} = <<'EOF';
+eval $data{code};
+EOF
+eval $data{code}; \end{perlcode}
+
+  \noindent Now we can modify its state:
+
+\begin{verbatim}
+$ perl examples/cli-basic cat cat
+sub cat {
+  print join "\n", @data{@_};
+}
+$ perl examples/cli-basic set foo
+bar
+^D
+$ perl examples/cli-basic cat foo
+bar
+$
+\end{verbatim}
+
+  Not bad for a first implementation. This is a very minimal self-modifying Perl file, though it's useless at this point. It also has some fairly serious deficiencies (other than being
+  useless). I'll cover the serious problems later on, but first let's address the usability.
+
+\section{Using an editor}\label{sec:using-an-editor}
+    The first thing that would help this script be more useful is a function that let you edit things with a real text editor. Fortunately this isn't difficult:
+
+\begin{verbatim}
+$ cp examples/cli-basic temp
+$ perl temp set edit
+sub edit {
+  my $filename = '/tmp/' . rand();
+  open my $file, '>', $filename;
+  print $file $data{$_[0]};
+  close $file;
+
+  system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+
+  open my $file, '<', $filename;
+  $data{$_[0]} = join '', <$file>;
+  close $file;
+}
+^D
+$
+\end{verbatim}
+
+    It won't work yet though. The reason is that we aren't {\tt eval}ing {\tt edit} yet; we need to manually edit the {\tt code} section and insert this line:
+
+\begin{verbatim}
+...
+eval $data{cat};
+eval $data{set};
+eval $data{edit};         # <- insert this
+...
+\end{verbatim}
+
+    Now you can invoke a text editor on any defined attribute:\footnote{Don't modify {\tt bootstrap} or break the print code though! This will possibly nuke your object.}
+
+\begin{verbatim}
+$ perl examples/cli-editor edit cat
+# hack away
+$
+\end{verbatim}
+
+    Here's the object at this point:
+
+\lstset{caption={examples/cli-editor},name={examples/cli-editor}}\begin{perlcode}
+my %data;
+$data{cat} = <<'EOF';
+sub cat {
+  print join "\n", @data{@_};
+}
+EOF
+$data{set} = <<'EOF';
+sub set {
+  $data{$_[0]} = join '', <STDIN>;
+}
+EOF
+$data{edit} = <<'EOF';
+sub edit {
+  my $filename = '/tmp/' . rand();
+  open my $file, '>', $filename;
+  print $file $data{$_[0]};
+  close $file;
+
+  system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+
+  open my $file, '<', $filename;
+  $data{$_[0]} = join '', <$file>;
+  close $file;
+}
+EOF
+$data{code} = <<'EOF';
+# Eval functions into existence:
+eval $data{cat};
+eval $data{set};
+eval $data{edit};
+
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $fh, '>', $0;
+print $fh 'my %data;', "\n";
+print $fh '$data{', $_, '} = <<\'EOF\';', "\n$data{$_}EOF\n" for keys %data;
+print $fh $data{bootstrap};
+close $fh;
+EOF
+$data{bootstrap} = <<'EOF';
+eval $data{code};
+EOF
+eval $data{code}; \end{perlcode}
+\chapter{Namespaces}\label{sec:namespaces}
+  It's a bummer to have to add a new {\tt eval} line for every function we want to define. We could merge all of the functions into a single hash key, but that's too easy.\footnote{Aside from
+  being a lame cop-out, it also limits extensibility, as I'll explain later.} More appropriate is to assign a type to each hash key. This can be encoded in the name. For example, we might
+  convert the names like this:
+
+\begin{verbatim}
+set  -> function::set
+cat  -> function::cat
+edit -> function::edit
+code -> code::main
+\end{verbatim}
+
+  For reasons that I'll explain in a moment, we no longer need {\tt bootstrap}. The rules governing these types are:
+
+\begin{enumerate}
+\item{When we see a new {\tt function::} key, evaluate its contents.}
+\item{When we see a new {\tt code::} key, evaluate its contents. \label{item:run-code}}
+\end{enumerate}
+
+  \Ref{Rule}{item:run-code} is why we don't need {\tt bootstrap} anymore. Now you've probably noticed that these rules do exactly the same thing -- why are we differentiating between these
+  types then? Two reasons. First, we need to make sure that functions are evaluated before the code section is evaluated (otherwise the functions won't exist when we need them). Second, it's
+  because functions can be handled in a more useful way.
+
+\section{Handling functions more usefully}\label{sec:namespaces-handling-functions-more-usefully}
+    Remember how we had to write \verb|sub X {| and \verb|}| every time we wrote a function, despite the fact that the function name was identical to the name of the key in \verb|%data|?
+    That's fairly lame, and it could become misleading if the names ever weren't the same. We really should have the script handle this for us. So instead of writing the function signature, we
+    would just write its body:
+
+\begin{verbatim}
+# The body of 'cat':
+print join "\n", @data{@_};
+\end{verbatim}
+
+    \noindent and infer its name from the key. Perl is helpful here by giving us first-class access to the symbol table:
+
+\lstset{caption={snippets/create-function},name={snippets/create-function}}\begin{perlcode}
+sub create_function {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+} \end{perlcode}
+
+    If we're going to handle functions this way, we need to change the rule for {\tt function::} keys:
+
+\begin{quote}
+When we see a new {\tt function::} key, call \verb|create_function| on the key name (without the {\tt function::} part) and the value.
+\end{quote}
+
+\section{Catching attribute creation}\label{sec:namespaces-catching-attribute-creation}
+    We can't observe when a new key is added to \verb|%data| as things are now. Fortunately this is easy to fix. Instead of writing lines that read \verb|$data{...} = ...|, we can write some
+    functions that perform this assignment for us, and in the process we can handle any side-effects like function creation. Here's a naive implementation:
+
+\lstset{caption={snippets/define-function-define-code},name={snippets/define-function-define-code}}\begin{perlcode}
+sub define_function {
+  my ($name, $value) = @_;
+  $data{$name} = $value;
+  create_function $name, $value;
+}
+sub define_code {
+  my ($name, $value) = @_;
+  $data{$name} = $value;
+} \end{perlcode}
+
+    Since we're always going to assign into \verb|%data|, we can abstract that step out:
+
+\lstset{caption={snippets/define-definer},name={snippets/define-definer}}\begin{perlcode}
+sub define_definer {
+  my ($name, $handler) = @_;
+  *{$name} = sub {
+    my ($name, $value) = @_;
+    $data{$name} = $value;
+    &$handler($name, $value);
+  }
+}
+define_definer 'define_function', \&create_function;
+define_definer 'define_code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+}; \end{perlcode}
+
+    To avoid the possibility of later collisions we should probably use a separate namespace for all of these functions, since really bad things happen if you inadvertently replace one. I use
+    the {\tt meta::} namespace for this purpose in my scripts.
+
+    At this point we've got the foundation for namespace creation. This is actually used with few modifications in the Perl objects I use on a regular basis. Here's \verb|meta::define_form|
+    lifted from {\tt object}:
+
+\lstset{caption={snippets/meta-define-form},name={snippets/meta-define-form}}\begin{perlcode}
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+} \end{perlcode}
+
+    The idea is the same as \verb|define_definer|, but with a few extra lines. We stash the delegate in a \verb|%datatypes| table for later reference. We also (redundantly, I notice) create a
+    function in the {\tt meta::} package so that we can refer to it when defining other forms. This lets us copy the behavior of namespaces but still have them be separate. The third line
+    that's different is \verb|chomp $value|, which is used because heredocs put an extra newline on the end of strings. \verb|meta::define_form| has the same interface as
+    \verb|define_definer|:
+
+\lstset{caption={snippets/meta-define-form-function-code},name={snippets/meta-define-form-function-code}}\begin{perlcode}
+meta::define_form 'function', \&create_function;
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+}; \end{perlcode}
+
+    Attribute definitions look a little different than they did before. The two \verb|define_form| calls above create the functions {\tt meta::function} and {\tt meta::code}, which will need
+    to be called this way:
+
+\begin{verbatim}
+meta::function('cat', <<'EOF');
+print join "\n", @data{@_};
+EOF
+meta::code('main', <<'EOF');
+# No more eval statements!
+# Run command
+...
+# Save stuff
+...
+EOF
+\end{verbatim}
+
+    Notice that we don't specify the full name of the attributes being created. \verb|meta::function('x', ...)| creates a key called {\tt function::x}; this was handled in the
+    \verb|define_form| logic.
+
+\section{Putting it all together}\label{sec:namespaces-putting-it-all-together}
+    At this point we're all set to write another script. The overall structure is still basically the same even though each piece has changed a little:
+
+\lstset{caption={examples/namespace-basic},name={examples/namespace-basic}}\begin{perlcode}
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+
+meta::function('cat', <<'EOF');
+print join "\n", @data{@_};
+EOF
+
+meta::code('main', <<'EOF');
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $file, '>', $0;
+
+# Copy above bootstrapping logic:
+print $file <<'EOF2';
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+EOF2
+
+# Serialize attributes (everything else before code):
+for (grep(!/^code::/, keys %data), grep(/^code::/, keys %data)) {
+  my ($namespace, $name) = split /::/, $_, 2;
+  print $file "meta::$namespace('$name', <<'EOF');\n$data{$_}\nEOF\n";
+}
+
+# Just for good measure:
+print $file "\n__END__";
+close $file;
+EOF
+
+__END__ \end{perlcode}
+
+    The most substantial changes were:
+
+\begin{enumerate}
+\item{We're defining two hashes at the beginning, though we still just use \verb|%data|.}
+\item{We're using delegate functions to define attributes rather than assigning directly into \verb|%data|.}
+\item{Quoted values now get {\tt chomp}ed. I've added another \verb|\n| in the serialization logic to compensate for this.}
+\item{The serialization logic is now order-specific; it puts {\tt code::} entries after other things.}
+\item{The file now has an \verb|__END__| marker on it.}
+\end{enumerate}
+
+\section{Separating bootstrap code}\label{sec:namespaces-separating-bootstrap-code}
+    The bootstrap code is now large quoted string inside {\tt code::main}, which isn't optimal. Better is to break it out into its own attribute. To do this, we'll need a new namespace that
+    has no side-effect.\footnote{We can't use {\tt code::} because then the code would be evaluated twice; once because it's printed directly, and again because of the {\tt eval} in the {\tt
+    code::} delegate.} I'll call this namespace {\tt bootstrap::}.
+
+\begin{verbatim}
+meta::define_form 'bootstrap', sub {};
+\end{verbatim}
+
+    There's a special member of the {\tt bootstrap::} namespace that contains the code in the beginning of the file:
+
+\begin{verbatim}
+meta::bootstrap('initialization', <<'EOF');
+my %data;
+my %datatypes;
+...
+EOF
+\end{verbatim}
+
+    This condenses {\tt code::main} by a lot:
+
+\lstset{caption={snippets/bootstrapped-code-main},name={snippets/bootstrapped-code-main}}\begin{perlcode}
+meta::code('main', <<'EOF');
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $file, '>', $0;
+print $file $data{'bootstrap::initialization'};
+
+# Serialize attributes (everything else before code):
+for (grep(!/^code::/, keys %data), grep(/^code::/, keys %data)) {
+  my ($namespace, $name) = split /::/, $_, 2;
+  print $file "meta::$namespace('$name', <<'EOF');\n$data{$_}\nEOF\n";
+}
+
+# Just for good measure:
+print $file "\n__END__";
+close $file;
+EOF \end{perlcode}
+
+    Here's the final product, after adding the {\tt set} and {\tt edit} functions from before:
+
+\lstset{caption={examples/namespace-full},name={examples/namespace-full}}\begin{perlcode}
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+
+meta::bootstrap('initialization', <<'EOF');
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+EOF
+
+meta::function('cat', <<'EOF');
+print join "\n", @data{@_};
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file $data{$_[0]};
+close $file;
+
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+
+open my $file, '<', $filename;
+$data{$_[0]} = join '', <$file>;
+close $file;
+EOF
+
+meta::code('main', <<'EOF');
+# Run specified command:
+my $command = shift @ARGV;
+&$command(@ARGV);
+
+# Save new state:
+open my $file, '>', $0;
+print $file $data{'bootstrap::initialization'};
+
+# Serialize attributes (everything else before code):
+for (grep(!/^code::/, keys %data), grep(/^code::/, keys %data)) {
+  my ($namespace, $name) = split /::/, $_, 2;
+  print $file "meta::$namespace('$name', <<'EOF');\n$data{$_}\nEOF\n";
+}
+
+# Just for good measure:
+print $file "\n__END__";
+close $file;
+EOF
+
+__END__ \end{perlcode}
+\chapter{Serialization}\label{sec:serialization}
+  Earlier I alluded to a glaring problem with these scripts as they stand. The issue is the {\tt EOF} marker we've been using. Here's what happens if we put a line containing {\tt EOF} into an
+  attribute:
+
+\begin{verbatim}
+$ cp examples/basic-meta-with-functions temp
+$ perl temp set function::bif
+print <<'EOF';
+uh-oh...
+EOF
+^D
+$ perl temp cat function::bif
+Can't locate object method "EOF" via package "meta::function" at temp line 31.
+$
+\end{verbatim}
+
+  It's not hard to see what went wrong: {\tt temp} now has an attribute definition that looks like this:
+
+\begin{verbatim}
+meta::function('bif', <<'EOF');
+print <<'EOF';
+uh-oh...
+EOF
+
+EOF
+\end{verbatim}
+
+  We need to come up with some end marker that isn't in the value being stored. For the moment let's use random numbers.\footnote{{\tt object} implements a simple FNV-hash and uses the hash of
+  the contents. I'll go over how to implement this a bit later.}
+
+\section{Fixing the {\tt EOF} markers}\label{sec:serialization-fixing-the-eof-markers}
+    There isn't a particularly compelling reason to inline the serialization logic in {\tt code::main}. Since we have a low-overhead way of defining functions, let's make a {\tt serialize}
+    function to return the state of a script as a string, along with a helper method \verb|serialize_single| to handle one attribute at a time:
+
+\lstset{caption={snippets/serialize-and-serialize-single},name={snippets/serialize-and-serialize-single}}\begin{perlcode}
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_), grep !/^code::/, @keys),
+           map(serialize_single($_), grep  /^code::/, @keys),
+           "\n__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . int(rand(1 << 31));
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF \end{perlcode}
+
+    Sorting the keys is important. We'll be verifying the output of the serialization function, so it needs to be stable.
+
+    Now {\tt code::main} is a bit simpler. With these new functions the file logic becomes:
+
+\begin{verbatim}
+open my $file, '>', $0;
+print $file serialize();
+close $file;
+\end{verbatim}
+
+\section{Verifying serialization}\label{sec:serialization-verifying-serialization}
+    What we've been doing is very unsafe. There isn't a backup file, so if the serialization goes wrong then we'll blindly nuke our original script. This is a big problem, so let's fix it. The
+    new strategy will be to serialize to a temporary file, have that file generate a checksum, and make sure that the checksum is what we expect. Before we can implement such a mechanism,
+    though, we'll need a string hash function.
+
+\subsection{Implementing the Fowler-Noll Vo hash}\label{sec:serialization-verifying-fnv-hash}
+      At its core, the FNV-1a hash\footnote{\url{http://en.wikipedia.org/wiki/Fowler-Noll-Vo_hash_function}} is just a multiply-xor in a loop. Generally it's written like this:
+
+\lstset{caption={snippets/fnv-hash.c},name={snippets/fnv-hash.c}}\begin{cppcode}
+int hash (char *s) {
+  const int fnv_prime  = 16777619;      // Magic numbers
+  const int fnv_offset = 2166136261;
+  int result = fnv_offset;
+  char c;
+  while (c = *s++) {
+    result ^= c;
+    result *= fnv_prime;
+  }
+  return result;
+} \end{cppcode}
+
+      In Perl it's advantageous to vectorize this function for performance reasons. It isn't necessarily sound to do this, but empirically the results seem reasonably well-distributed. Here's
+      the function I ended up with:
+
+\lstset{caption={snippets/fnv-hash-function},name={snippets/fnv-hash-function}}\begin{perlcode}
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF \end{perlcode}
+
+      This produces a 32-bit hash. Ideally we have something of at least 128 bits, just to reduce the likelihood of collision. When I was writing the 128-bit hash I went a bit overboard with
+      hash chaining (which doesn't matter because it isn't a cryptographic hash), but here's the full hash:
+
+\lstset{caption={snippets/fast-hash-function},name={snippets/fast-hash-function}}\begin{perlcode}
+meta::function('fast_hash', <<'EOF');
+my ($data)     = @_;
+my $piece_size = length($data) >> 3;
+
+my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                  map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+my @hashes     = (fnv_hash($pieces[0]));
+
+push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+
+$hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+$hashes[0]  ^= $hashes[8];
+
+sprintf '%08x' x 4, @hashes[0 .. 3];
+EOF \end{perlcode}
+
+      The convolutedness of this logic is partially to accommodate for very short strings.
+
+\subsection{Fixing {\tt EOF} markers again}\label{sec:serialization-verifying-fixing-eof-markers-again}
+      It's probably fine to use random numbers for EOF markers, but I prefer using a hash of the content. While it's probably about the same either way, it intuitively feels less likely that a
+      string will contain its own hash.\footnote{And as we all know, intuition is key when making decisions in math and computer science...}
+
+\lstset{caption={snippets/serialize-single-hash},name={snippets/serialize-single-hash}}\begin{perlcode}
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF \end{perlcode}
+
+      We can also use the script state to get a tempfile in the {\tt edit} function.\footnote{{\tt object} uses {\tt File::Temp} to get temporary filenames. This is a better solution than
+      anything involving pseudorandom names in {\tt /tmp}.}
+
+\subsection{Implementing the {\tt state} function}\label{sec:serialization-verifying-state-function}
+      The ``state'' of an object is just the hash of its serialization. (This is why it's useful to have the serialization logic factored out.)
+
+\lstset{caption={snippets/state-function-hash},name={snippets/state-function-hash}}\begin{perlcode}
+meta::function('state', <<'EOF');
+fast_hash(serialize());
+EOF \end{perlcode}
+
+\subsection{Implementing the {\tt verify} function}\label{sec:serialization-verifying-verify-function}
+      {\tt verify} writes a temporary copy, checks its checksum, and returns {\tt 0} or {\tt 1} depending on whether the checksum came out invalid or valid, respectively. If invalid, it leaves
+      the temporary file there for debugging purposes.
+
+\lstset{caption={snippets/verify-function},name={snippets/verify-function}}\begin{perlcode}
+meta::function('verify', <<'EOF');
+my $serialized_data = serialize();
+my $state           = state();
+
+my $temporary_filename = "$0.$state";
+open my $file, '>', $temporary_filename;
+print $file $serialized_data;
+close $file;
+chmod 0700, $temporary_filename;
+
+chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+
+my $result = $observed_state eq $state;
+unlink $temporary_filename if $result;
+$result;
+EOF \end{perlcode}
+
+\section{Save logic}\label{sec:serialization-save-logic}
+    Now we can use {\tt verify} before overwriting \verb|$0|.
+
+\lstset{caption={snippets/save-function-and-broken-usage},name={snippets/save-function-and-broken-usage}}\begin{perlcode}
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::code('main', <<'EOF');
+...
+save();
+EOF \end{perlcode}
+
+\section{{\tt code::main} fixes}\label{sec:serialization-code-main-fixes}
+    There's actually a fairly serious problem at this point. Every script saves itself unconditionally, which involves creating a temporary filename and verifying its contents. What happens
+    when we run one then? Something like this:
+
+\begin{verbatim}
+$ perl some-script cat function::cat
+join "\n", @data{@_};     # Gets this much right
+# Now calls save(), which calls verify() to create a new temp script:
+> perl some-script.hash1 state
+  hash1                   # Gets this much right
+  # Now calls save(), which calls verify() to create a new temp script:
+  > perl some-script.hash1.hash2 state
+    ...
+\end{verbatim}
+
+    That's not what we want at all. There's no reason to call {\tt save} unless a modification has occurred, so we can make this modification to {\tt code::main}:
+
+\lstset{caption={snippets/code-main-with-fixed-save},name={snippets/code-main-with-fixed-save}}\begin{perlcode}
+meta::code('main', <<'EOF');
+my $initial_state = state();
+my $command = shift @ARGV;
+print &$command(@ARGV);    # Also printing the result -- important for state
+save() if state() ne $initial_state;
+EOF \end{perlcode}
+
+\section{Final result}\label{sec:serialization-final-result}
+    At this point we have an extensible and reasonably robust script. Here's what we've got so far:
+
+\lstset{caption={examples/verified},name={examples/verified}}\begin{perlcode}
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+
+meta::bootstrap('initialization', <<'EOF');
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+EOF
+
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_), grep !/^code::/, @keys),
+           map(serialize_single($_), grep  /^code::/, @keys),
+           "\n__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF
+
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF
+
+meta::function('fast_hash', <<'EOF');
+my ($data)     = @_;
+my $piece_size = length($data) >> 3;
+my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                  map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+my @hashes     = (fnv_hash($pieces[0]));
+push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+$hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+$hashes[0]  ^= $hashes[8];
+sprintf '%08x' x 4, @hashes[0 .. 3];
+EOF
+
+meta::function('state', <<'EOF');
+fast_hash(serialize());
+EOF
+
+meta::function('verify', <<'EOF');
+my $serialized_data = serialize();
+my $state           = state();
+
+my $temporary_filename = "$0.$state";
+open my $file, '>', $temporary_filename;
+print $file $serialized_data;
+close $file;
+chmod 0700, $temporary_filename;
+chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+my $result = $observed_state eq $state;
+unlink $temporary_filename if $result;
+$result;
+EOF
+
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::function('cat', <<'EOF');
+join "\n", @data{@_};
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file $data{$_[0]};
+close $file;
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+open my $file, '<', $filename;
+$data{$_[0]} = join '', <$file>;
+close $file;
+EOF
+
+meta::code('main', <<'EOF');
+my $initial_state = state();
+my $command = shift @ARGV;
+print &$command(@ARGV);
+save() if state() ne $initial_state;
+EOF
+
+__END__ \end{perlcode}
+\chapter{Adding a REPL}\label{sec:adding-a-repl}
+  There are some ergonomic problems with the script as it stands. First, it should have a shebang line so that we don't have to use {\tt perl} explicitly. But more importantly, it should
+  provide a REPL so that we don't have to keep calling it by name.
+
+  The first question is how this should be invoked. It would be cool if we could run the script without arguments and get the REPL, but that will require some changes to the current {\tt
+  code::main}. The ``right way'' to do it also requires a new data type.
+
+\section{The {\tt data} data type}\label{sec:adding-a-repl-the-data-data-type}
+    Sometimes we just want to store pieces of data without any particular meaning. We could use {\tt bootstrap::} for this, but it's cleaner to introduce a new data type altogether.
+
+\lstset{caption={snippets/define-form-data},name={snippets/define-form-data}}\begin{perlcode}
+meta::define_form 'data', sub {
+  # Define a basic editing interface:
+  my ($name, $value) = @_;
+  *{$name} = sub {
+    my ($command, $value) = @_;
+    return $data{"data::$name"} unless @_;
+    $data{"data::$name"} = $value if $command eq '=';
+  };
+}; \end{perlcode}
+
+    This function we're defining lets us inspect and change a data attribute from the command line. Assuming {\tt data::foo}, for example:
+
+\begin{verbatim}
+$ perl script foo = bar
+bar
+$ perl script foo
+bar
+$ perl script foo = baz
+baz
+$
+\end{verbatim}
+
+\section{Setting up the default action}\label{sec:adding-a-repl-setting-up-the-default-action}
+    The default action can be stored in a {\tt data::} attribute:
+
+\begin{verbatim}
+meta::data('default-action', <<'EOF');
+shell
+EOF
+
+meta::code('main', <<'EOF');
+...
+my $command = shift @ARGV || $data{'data::default-action'};
+print &$command(@ARGV);
+...
+EOF
+\end{verbatim}
+
+    Since all values are chomped already, we don't have to worry about the newline caused by the heredoc.
+
+\section{Making the script executable}\label{sec:adding-a-repl-making-the-script-executable}
+    This isn't hard at all. It means one extra line in the bootstrap logic, and another extra line in {\tt save}:
+
+\begin{verbatim}
+meta::bootstrap('initialization', <<'EOF');
+#!/usr/bin/perl
+...
+EOF
+
+meta::function('save', <<'EOF');
+...
+  close $file;
+  chmod 0744, $0; # Not perfect, but will fix later
+...
+EOF
+\end{verbatim}
+
+\section{The {\tt shell} function}\label{sec:adding-a-repl-the-shell-function}
+    The idea here is to listen for commands from the user and simulate the \verb|@ARGV| interaction pattern. Readline is the simplest way to go about this:
+
+\lstset{caption={snippets/shell-function-1},name={snippets/shell-function-1}}\begin{perlcode}
+meta::function('shell', <<'EOF');
+use Term::ReadLine;
+my $term = new Term::ReadLine "$0 shell";
+$term->ornaments(0);
+my $output = $term->OUT || \*STDOUT;
+while (defined($_ = $term->readline("$0\$ "))) {
+  my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+  my $function_name = shift @args;
+  s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+  if ($function_name) {
+    chomp(my $result = eval {&$function_name(@args)});
+    warn $@ if $@;
+    print $output $result, "\n" unless $@;
+  }
+}
+EOF \end{perlcode}
+
+    This shell function does some minimal quotation-mark parsing so that you can use multi-word arguments, but otherwise it's fairly basic. The script's name is used as the shell prompt.
+
+    It's OK to use {\tt use} inside of {\tt eval}ed functions. I think what happens is that it gets processed when the function is first created by {\tt meta::function}. But basically, Perl
+    does the right thing and it works just fine as long as the module exists.
+
+\section{Taking it to the max: tab-completion}\label{sec:adding-a-repl-tab-completion}
+    If you have the GNU Readline library installed (Perl defaults to something else otherwise), you can get tab-autocompletion just like you can in Bash. Here's a {\tt complete} function
+    written by my wife Joyce, modified slightly to make sense with this implementation:
+
+\lstset{caption={snippets/complete-function-1},name={snippets/complete-function-1}}\begin{perlcode}
+meta::function('complete', <<'EOF');
+my @attributes = sort keys %data;
+
+sub match {
+  my ($text, @options) = @_;
+  my @matches = sort grep /^$text/, @options;
+
+  if    (@matches == 0) {return undef;}
+  elsif (@matches == 1) {return $matches [0];}
+  elsif (@matches >  1) {
+    return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+  }
+}
+
+sub longest {
+  my ($s1, $s2) = @_; 
+  return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+  return ''; 
+}
+
+my ($text, $line) = @_;
+match ($text, @attributes);
+EOF \end{perlcode}
+
+    Using this function is easy; we just add one line to {\tt shell}:
+
+\begin{verbatim}
+$term->Attribs->{attempted_completion_function} = \&complete;
+while (defined($_ = $term->readline("$0\$ "))) {
+...
+\end{verbatim}
+
+\section{Final result}\label{sec:adding-a-repl-final-result}
+    Merging the shell and executable behavior in with the script from the last chapter, we now have:\footnote{You might notice that I'm still using {\tt EOF} as the marker in these scripts. As
+    soon as the script is rewritten it will replace the {\tt EOF}s with hashes; in general, you can use any valid delimiter the first time around and the script will take it from there.}
+
+\lstset{caption={examples/shell},name={examples/shell}}\begin{perlcode}
+#!/usr/bin/perl
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+meta::define_form 'data', sub {
+  # Define a basic editing interface:
+  my ($name, $value) = @_;
+  *{$name} = sub {
+    my ($command, $value) = @_;
+    return $data{"data::$name"} unless @_;
+    $data{"data::$name"} = $value if $command eq '=';
+  };
+};
+
+meta::bootstrap('initialization', <<'EOF');
+#!/usr/bin/perl
+my %data;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+meta::define_form 'bootstrap', sub {};
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  *{$name} = eval "sub {\n$body\n}";
+};
+meta::define_form 'code', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+meta::define_form 'data', sub {
+  # Define a basic editing interface:
+  my ($name, $value) = @_;
+  *{$name} = sub {
+    my ($command, $value) = @_;
+    return $data{"data::$name"} unless @_;
+    $data{"data::$name"} = $value if $command eq '=';
+  };
+};
+EOF
+
+meta::data('default-action', <<'EOF');
+shell
+EOF
+
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_), grep !/^code::/, @keys),
+           map(serialize_single($_), grep  /^code::/, @keys),
+           "\n__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF
+
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF
+
+meta::function('fast_hash', <<'EOF');
+my ($data)     = @_;
+my $piece_size = length($data) >> 3;
+my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                  map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+my @hashes     = (fnv_hash($pieces[0]));
+push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+$hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+$hashes[0]  ^= $hashes[8];
+sprintf '%08x' x 4, @hashes[0 .. 3];
+EOF
+
+meta::function('state', <<'EOF');
+fast_hash(serialize());
+EOF
+
+meta::function('verify', <<'EOF');
+my $serialized_data = serialize();
+my $state           = state();
+
+my $temporary_filename = "$0.$state";
+open my $file, '>', $temporary_filename;
+print $file $serialized_data;
+close $file;
+chmod 0700, $temporary_filename;
+chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+my $result = $observed_state eq $state;
+unlink $temporary_filename if $result;
+$result;
+EOF
+
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+  chmod 0744, $0;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::function('cat', <<'EOF');
+join "\n", @data{@_};
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('complete', <<'EOF');
+my @attributes = sort keys %data;
+sub match {
+  my ($text, @options) = @_;
+  my @matches = sort grep /^$text/, @options;
+
+  if    (@matches == 0) {return undef;}
+  elsif (@matches == 1) {return $matches [0];}
+  elsif (@matches >  1) {
+    return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+  }
+}
+sub longest {
+  my ($s1, $s2) = @_; 
+  return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+  return ''; 
+}
+my ($text, $line) = @_;
+match ($text, @attributes);
+EOF
+
+meta::function('shell', <<'EOF');
+use Term::ReadLine;
+my $term = new Term::ReadLine "$0 shell";
+$term->ornaments(0);
+my $output = $term->OUT || \*STDOUT;
+$term->Attribs->{attempted_completion_function} = \&complete;
+while (defined($_ = $term->readline("$0\$ "))) {
+  my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+  my $function_name = shift @args;
+  s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+  if ($function_name) {
+    chomp(my $result = eval {&$function_name(@args)});
+    warn $@ if $@;
+    print $output $result, "\n" unless $@;
+  }
+}
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file $data{$_[0]};
+close $file;
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+open my $file, '<', $filename;
+$data{$_[0]} = join '', <$file>;
+close $file;
+EOF
+
+meta::code('main', <<'EOF');
+my $initial_state = state();
+my $command = shift @ARGV || $data{'data::default-action'};
+print &$command(@ARGV);
+save() if state() ne $initial_state;
+EOF
+
+__END__ \end{perlcode}
+\chapter{Some improvements}\label{sec:some-improvements}
+  Let's step back for a minute and improve things a bit in preparation for some real awesomeness. There are few places that could use improvement. First, there isn't a way to get a list of
+  defined attributes on an object without opening it by hand. Second, the interface exposes too many functions to the user; in particular, things like {\tt complete} aren't useful from the
+  command line. Finally, every data type we define gets put into {\tt bootstrap::initialization}, which causes $O(n)$ redundancy in the size of the data type constructors.
+
+\section{Useful functions}\label{sec:some-improvements-useful-functions}
+    The most important thing to add is {\tt ls}, which gives you a listing of attributes:\footnote{{\tt object} contains a much more sophisticated version of {\tt ls}. It parses options and
+    applies filters to the listing, much like the UNIX {\tt ls} command. I'll go over how to implement this stuff in a later chapter.} Related are {\tt cp} and {\tt rm}, which do what you
+    would expect:
+
+\lstset{caption={snippets/ls-cp-and-rm-functions},name={snippets/ls-cp-and-rm-functions}}\begin{perlcode}
+meta::function('ls', <<'EOF');
+join "\n", sort keys %data;
+EOF
+
+meta::function('cp', <<'EOF');
+$data{$_[1]} = $data{$_[0]};
+EOF
+
+meta::function('rm', <<'EOF');
+delete @data{@_};
+EOF \end{perlcode}
+
+    Another useful function is {\tt create}, which opens an editor for a new attribute:\footnote{We can already do this with {\tt edit}, but {\tt object} doesn't let you edit attributes that
+    don't exist. I'll include that behavior in these scripts before too long.}
+
+\lstset{caption={snippets/create-function},name={snippets/create-function}}\begin{perlcode}
+meta::function('create', <<'EOF');
+return edit($_[0]) if exists $data{$_[0]};
+$data{$_[0]} = $_[1] || "# Attribute $_[0]";
+edit($_[0]);
+EOF \end{perlcode}
+
+    Now we can create stuff from inside the shell or command-line and have a civilized text-editor interface to do it.
+
+\section{Making some functions internal}\label{sec:some-improvements-making-some-functions-internal}
+    It would be nice to have a distinction between functions meant for public consumption and functions used just inside the script. For example, nobody's going to call \verb|fnv_hash| from
+    the command-line; they'd have to pass it a string in {\tt @ARGV}, which isn't practical. So it's time for a new toplevel mechanism, the \verb|%externalized_functions| table:
+
+\begin{verbatim}
+# In bootstrap::initialization:
+my %data;
+my %externalized_functions;
+my %datatypes;
+\end{verbatim}
+
+    \verb|%externalized_functions| maps every callable function to the attribute that defines it, and only the listed functions will be usable directly from the shell or the command-line. This
+    has an additional benefit of providing much better autocompletion, since the first word in the REPL always names a function.
+
+\begin{verbatim}
+meta::define_form 'data', sub {
+  my ($name, $value) = @_;
+  $externalized_functions{$name} = "data::$name";
+  *{$name} = ...;
+};
+
+meta::define_form 'function', sub {
+  my ($name, $value) = @_;
+  $externalized_functions{$name} = "function::$name";
+  *{$name} = ...;
+};
+\end{verbatim}
+
+    \noindent And here's the new data type:
+
+\lstset{caption={snippets/internal-function-type},name={snippets/internal-function-type}}\begin{perlcode}
+meta::define_form 'internal_function', sub {
+  my ($name, $value) = @_;
+  *{$name} = eval "sub {\n$value\n}";
+}; \end{perlcode}
+
+    We can now move \verb|fnv_hash|, \verb|fast_hash|, and {\tt complete} into this namespace.
+
+    We'll need to update {\tt shell} and {\tt complete} to leverage this new information:
+
+\lstset{caption={snippets/shell-2},name={snippets/shell-2}}\begin{perlcode}
+meta::function('shell', <<'EOF');
+use Term::ReadLine;
+my $term = new Term::ReadLine "$0 shell";
+$term->ornaments(0);
+my $output = $term->OUT || \*STDOUT;
+$term->Attribs->{attempted_completion_function} = \&complete;
+while (defined($_ = $term->readline("$0\$ "))) {
+  my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+  my $function_name = shift @args;
+  s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+  if ($function_name) {
+    if ($externalized_functions{$function_name}) {
+      chomp(my $result = eval {&$function_name(@args)});
+      warn $@ if $@;
+      print $output $result, "\n" unless $@;
+    } else {
+      warn "Command not found: '$function_name' (use 'ls' to see available commands)";
+    }
+  }
+}
+EOF \end{perlcode}
+
+\lstset{caption={snippets/complete-2},name={snippets/complete-2}}\begin{perlcode}
+meta::function('complete', <<'EOF');
+my @functions  = sort keys %externalized_functions;
+my @attributes = sort keys %data;
+sub match {
+  my ($text, @options) = @_;
+  my @matches = sort grep /^$text/, @options;
+  if    (@matches == 0) {return undef;}
+  elsif (@matches == 1) {return $matches [0];}
+  elsif (@matches >  1) {
+    return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+  }
+}
+sub longest {
+  my ($s1, $s2) = @_; 
+  return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+  return ''; 
+}
+my ($text, $line) = @_;
+if ($line =~ / /) {
+  # Start matching attribute names.
+  match ($text, @attributes);
+} else {
+  # Start of line, so it's a function.
+  match ($text, @functions);
+}
+EOF \end{perlcode}
+
+\section{Separate attributes for data types}\label{sec:some-improvements-separate-attributes-for-data-types}
+    It's cumbersome to have all of the data types go in {\tt bootstrap::initialization}. Better is to break the code into separate attributes. To do this we'll need to restructure the scripts
+    a little bit.
+
+    Up until now the ``stuff first, code second'' approach has worked out all right. But now we want to evaluate stuff at the beginning and at the end, and if this keeps up it could get out of
+    hand. Better is to have {\tt serialize} generate a call into some function that will be defined, and do away with {\tt code::} altogether. We can use a new namespace {\tt meta::} for stuff
+    that needs to be evaluated at the beginning. So basically, instead of this:
+
+\begin{verbatim}
+bootstrap
+  types
+functions
+code
+\end{verbatim}
+
+    \noindent we'd have this:
+
+\begin{verbatim}
+bootstrap
+meta definitions
+functions
+call to internal::main()
+\end{verbatim}
+
+    Here's what the new {\tt serialize} looks like:
+
+\lstset{caption={snippets/serialize-with-internal-main},name={snippets/serialize-with-internal-main}}\begin{perlcode}
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_),
+             grep( /^meta::/, @keys),
+             grep(!/^meta::/, @keys)),
+           "internal::main();",
+           "__END__"; \end{perlcode}
+
+    And here's the definition for {\tt meta::} (it's identical to the one we used to have for {\tt code::}). This is the only \verb|define_form| invocation in {\tt bootstrap::initialization};
+    the others now reside in their own attributes.
+
+\lstset{caption={snippets/define-form-meta},name={snippets/define-form-meta}}\begin{perlcode}
+meta::define_form 'meta', sub {
+  my ($name, $value) = @_;
+  eval $value;
+}; \end{perlcode}
+
+    Here are the new type definitions:
+
+\begin{verbatim}
+meta::meta('type::data', <<'EOF');
+meta::define_form 'data', sub {...};
+EOF
+meta::meta('type::function', <<'EOF');
+meta::define_form 'function', sub {...};
+EOF
+meta::meta('type::bootstrap', <<'EOF');
+meta::define_form 'bootstrap', sub {};
+EOF
+...
+\end{verbatim}
+
+\subsection{Factoring externalization}\label{sec:some-improvements-data-types-factoring-externalization}
+      While we're cleaning up meta-stuff, it's worth thinking about factoring out externalization. There isn't a particularly good reason to keep manually assigning to
+      \verb|%externalized_functions|; better is to abstract this detail into a function. To do this, we'll want a meta-library:
+
+\lstset{caption={snippets/meta-externalize},name={snippets/meta-externalize}}\begin{perlcode}
+meta::meta('externalize', <<'EOF');
+sub meta::externalize {
+  my ($name, $attribute, $implementation) = @_;
+  $externalized_functions{$name} = $attribute;
+  *{$name} = $implementation;
+}
+EOF \end{perlcode}
+
+      This meta-definition is available to the others because it sorts first.\footnote{Which is a horrible way to manage dependencies, but it's worked so far.} Now instead of manually
+      externalizing stuff, data types like {\tt function::} and {\tt data::} can just use {\tt meta::externalize}:
+
+\lstset{caption={snippets/function-type-with-externalize},name={snippets/function-type-with-externalize}}\begin{perlcode}
+meta::meta('type::function', <<'EOF');
+meta::define_form 'function', sub {
+  my ($name, $value) = @_;
+  meta::externalize $name, "function::$name", eval "sub {\n$value\n}";
+};
+EOF \end{perlcode}
+
+\section{Abstracting {\tt \%data}}\label{sec:some-improvements-abstracting-data}
+    Another issue worth fixing is that you can assign into \verb|%data| arbitrarily, particularly in ways that end up breaking deserialization. For instance, nothing is stopping you from
+    creating a key called {\tt foo::bar} even though there isn't a namespace called {\tt foo::}. This problem can be solved at the interface level (i.e.~inside {\tt edit}, {\tt set}, and
+    such), but it's probably more useful to go a step further and abstract all access to \verb|%data|.
+
+    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}.\footnote{I can't remember why I thought {\tt
+    retrieve} was necessary when I wrote {\tt object}. As far as I know it still isn't; it's just there for symmetry I think.} These two functions also benefit from a couple more to separate
+    out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these functions are taken directly
+    from {\tt object}.}
+
+\lstset{caption={snippets/namespace-attribute-retrieve-associate-functions},name={snippets/namespace-attribute-retrieve-associate-functions}}\begin{perlcode}
+meta::internal_function('namespace', <<'EOF');
+my ($name) = @_;
+$name =~ s/::.*$//;
+$name;
+EOF
+
+meta::internal_function('attribute', <<'EOF');
+my ($name) = @_;
+$name =~ s/^[^:]*:://;
+$name;
+EOF
+
+meta::internal_function('retrieve', <<'EOF');
+my @results = map defined $data{$_} ? $data{$_} : file::read($_), @_;
+wantarray ? @results : $results[0];
+EOF
+
+meta::internal_function('associate', <<'EOF');
+my ($name, $value, %options) = @_;
+my $namespace = namespace($name);
+die "Namespace $namespace does not exist" unless $datatypes{$namespace};
+$data{$name} = $value;
+execute($name) if $options{'execute'};
+EOF \end{perlcode}
+
+\subsection{Dynamic execution}\label{sec:some-improvements-abstracting-data-dynamic-execution}
+      One problem with the way we've defined {\tt cp} is that you'll have to close and reopen the shell to get new functions to take effect. This is because while we're assigning into
+      \verb|%data|, we're not calling the handler associated with the namespace. The simplest way to fix this is to dynamically invoke that handler:
+
+\lstset{caption={snippets/execute-function},name={snippets/execute-function}}\begin{perlcode}
+meta::internal_function('execute', <<'EOF');
+my ($name, %options) = @_;
+my $namespace = namespace($name);
+eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
+warn $@ if $@ && $options{'carp'};
+EOF \end{perlcode}
+
+      {\tt associate} is already hooked up to use this function; all you have to do is pass an extra option:
+
+\begin{verbatim}
+associate('function::foo', '...', execute => 1);
+\end{verbatim}
+
+\section{Final result}\label{sec:some-improvements-final-result}
+    Integrating all of these improvements into the previous chapter's script yields this monumental piece of work:\footnote{This is the last full listing I'll provide here. The remaining
+    chapters cover the concepts required to get from here to {\tt object}. At this point the stuff going on in {\tt object} should more or less make sense, though you'll want to use {\tt ls-a}
+    rather than {\tt ls} to get a full listing of attributes.}
+
+\lstset{caption={examples/some-improvements},name={examples/some-improvements}}\begin{perlcode}
+#!/usr/bin/perl
+my %data;
+my %externalized_functions;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+
+meta::define_form 'meta', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+
+meta::meta('externalize', <<'EOF');
+sub meta::externalize {
+  my ($name, $attribute, $implementation) = @_;
+  $externalized_functions{$name} = $attribute;
+  *{$name} = $implementation;
+}
+EOF
+
+meta::meta('type::bootstrap', <<'EOF');
+meta::define_form 'bootstrap', sub {};
+EOF
+
+meta::meta('type::function', <<'EOF');
+meta::define_form 'function', sub {
+  my ($name, $body) = @_;
+  meta::externalize $name, "function::$name", eval "sub {\n$body\n}";
+};
+EOF
+
+meta::meta('type::internal_function', <<'EOF');
+meta::define_form 'internal_function', sub {
+  my ($name, $value) = @_;
+  *{$name} = eval "sub {\n$value\n}";
+};
+EOF
+
+meta::meta('type::data', <<'EOF');
+meta::define_form 'data', sub {
+  # Define a basic editing interface:
+  my ($name, $value) = @_;
+  meta::externalize $name, "data::$name", sub {
+    my ($command, $value) = @_;
+    return $data{"data::$name"} unless @_;
+    $data{"data::$name"} = $value if $command eq '=';
+  };
+};
+EOF
+
+meta::bootstrap('initialization', <<'EOF');
+#!/usr/bin/perl
+my %data;
+my %externalized_functions;
+my %datatypes;
+
+sub meta::define_form {
+  my ($namespace, $delegate) = @_;
+  $datatypes{$namespace} = $delegate;
+  *{"meta::${namespace}::implementation"} = $delegate;
+  *{"meta::$namespace"} = sub {
+    my ($name, $value) = @_;
+    chomp $value;
+    $data{"${namespace}::$name"} = $value;
+    $delegate->($name, $value);
+  };
+}
+
+meta::define_form 'meta', sub {
+  my ($name, $value) = @_;
+  eval $value;
+};
+EOF
+
+meta::data('default-action', <<'EOF');
+shell
+EOF
+
+meta::internal_function('namespace', <<'EOF');
+my ($name) = @_;
+$name =~ s/::.*$//;
+$name;
+EOF
+
+meta::internal_function('attribute', <<'EOF');
+my ($name) = @_;
+$name =~ s/^[^:]*:://;
+$name;
+EOF
+
+meta::internal_function('retrieve', <<'EOF');
+my @results = map defined $data{$_} ? $data{$_} : file::read($_), @_;
+wantarray ? @results : $results[0];
+EOF
+
+meta::internal_function('associate', <<'EOF');
+my ($name, $value, %options) = @_;
+my $namespace = namespace($name);
+die "Namespace $namespace does not exist" unless $datatypes{$namespace};
+$data{$name} = $value;
+execute($name) if $options{'execute'};
+EOF
+
+meta::internal_function('execute', <<'EOF');
+my ($name, %options) = @_;
+my $namespace = namespace($name);
+eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
+warn $@ if $@ && $options{'carp'};
+EOF
+
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_),
+             grep( /^meta::/, @keys),
+             grep(!/^meta::/, @keys)),
+           "internal::main();",
+           "__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF
+
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF
+
+meta::function('fast_hash', <<'EOF');
+my ($data)     = @_;
+my $piece_size = length($data) >> 3;
+my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                  map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+my @hashes     = (fnv_hash($pieces[0]));
+push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+$hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+$hashes[0]  ^= $hashes[8];
+sprintf '%08x' x 4, @hashes[0 .. 3];
+EOF
+
+meta::function('state', <<'EOF');
+fast_hash(serialize());
+EOF
+
+meta::function('verify', <<'EOF');
+my $serialized_data = serialize();
+my $state           = state();
+
+my $temporary_filename = "$0.$state";
+open my $file, '>', $temporary_filename;
+print $file $serialized_data;
+close $file;
+chmod 0700, $temporary_filename;
+chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+my $result = $observed_state eq $state;
+unlink $temporary_filename if $result;
+$result;
+EOF
+
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+  chmod 0744, $0;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::function('ls', <<'EOF');
+join "\n", sort keys %data;
+EOF
+
+meta::function('cp', <<'EOF');
+associate($_[1], retrieve($_[0]));
+EOF
+
+meta::function('rm', <<'EOF');
+delete @data{@_};
+EOF
+
+meta::function('cat', <<'EOF');
+join "\n", @data{@_};
+EOF
+
+meta::function('create', <<'EOF');
+return edit($_[0]) if exists $data{$_[0]};
+associate($_[0], $_[1] || "# Attribute $_[0]");
+edit($_[0]);
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('complete', <<'EOF');
+my @functions  = sort keys %externalized_functions;
+my @attributes = sort keys %data;
+sub match {
+  my ($text, @options) = @_;
+  my @matches = sort grep /^$text/, @options;
+  if    (@matches == 0) {return undef;}
+  elsif (@matches == 1) {return $matches [0];}
+  elsif (@matches >  1) {
+    return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+  }
+}
+sub longest {
+  my ($s1, $s2) = @_; 
+  return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+  return ''; 
+}
+my ($text, $line) = @_;
+if ($line =~ / /) {
+  # Start matching attribute names.
+  match ($text, @attributes);
+} else {
+  # Start of line, so it's a function.
+  match ($text, @functions);
+}
+EOF
+
+meta::internal_function('shell', <<'EOF');
+use Term::ReadLine;
+my $term = new Term::ReadLine "$0 shell";
+$term->ornaments(0);
+my $output = $term->OUT || \*STDOUT;
+$term->Attribs->{attempted_completion_function} = \&complete;
+while (defined($_ = $term->readline("$0\$ "))) {
+  my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+  my $function_name = shift @args;
+  s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+  if ($function_name) {
+    if ($externalized_functions{$function_name}) {
+      chomp(my $result = eval {&$function_name(@args)});
+      warn $@ if $@;
+      print $output $result, "\n" unless $@;
+    } else {
+      warn "Command not found: '$function_name' (use 'ls' to see available commands)";
+    }
+  }
+}
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file retrieve($_[0]);
+close $file;
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+open my $file, '<', $filename;
+associate($_[0]}, join '', <$file>);
+close $file;
+EOF
+
+meta::internal_function('internal::main', <<'EOF');
+my $initial_state = state();
+my $command = shift @ARGV || retrieve('data::default-action');
+print &$command(@ARGV);
+save() if state() ne $initial_state;
+EOF
+
+internal::main();
+
+__END__ \end{perlcode}
+
+\part{The Fun Stuff}
+\chapter{{\tt eval} backtraces}\label{sec:eval-backtraces}
+  Our script is fairly awesome so far. It prevents us from creating attributes in namespaces that don't exist, since that would cause incorrect serialization, it verifies before it saves, etc.
+  But there's one problem. Take a look at the error messages we get:
+
+\begin{verbatim}
+$ perl examples/some-improvements
+examples/some-improvements$ create foo::bar
+Namespace foo does not exist at (eval 9) line 4.
+examples/some-improvements$
+\end{verbatim}
+
+  If there's a problem in some attribute, we have no information about the location of the error other than ``eval $n$'' and the line number relative to that. {\tt object} solves this problem:
+
+\begin{verbatim}
+$ object
+object$ create foo::bar
+  [error] Namespace foo does not exist at internal_function::associate line 4.
+object$
+\end{verbatim}
+
+  The key is to wrap {\tt eval} in such a way that we can later resolve the meaningless numbers into useful locations. And to do this, we're going to need to modify the bootstrap code again.
+
+\begin{verbatim}
+my %data;
+my %externalized_functions;
+my %datatypes;
+my %locations;      # Maps eval-numbers to attribute names
+\end{verbatim}
+
+  There's a beautiful hack to handle the {\tt eval} processing. Watch this (also in {\tt bootstrap::initialization}):\footnote{It actually doesn't have to be inside the bootstrap code, but it
+  doesn't change often and is useful to have around, so I decided to put it there to save time.}
+
+\lstset{caption={snippets/meta-eval-in},name={snippets/meta-eval-in}}\begin{perlcode}
+sub meta::eval_in {
+  my ($what, $where) = @_;
+  # Obtain next eval-number and alias it to the designated location
+  @locations{eval('__FILE__') =~ /\(eval (\d+)\)/} = ($where);  # <- step 1
+  my $result = eval $what;                                      # <- step 2
+  $@ =~ s/\(eval \d+\)/$where/ if $@;
+  warn $@ if $@;
+  $result;
+} \end{perlcode}
+
+  By {\tt eval}ing \verb|__FILE__|, we get the current eval number. So the next one will be whatever we {\tt eval} next. This means that in the shell sessions above, \verb|%locations| contains
+  a mapping from {\tt 9} to \verb|internal_function::associate|. Here's the function that converts an {\tt eval} index into an attribute name:
+
+\lstset{caption={snippets/translate-backtrace-function},name={snippets/translate-backtrace-function}}\begin{perlcode}
+meta::internal_function('translate_backtrace', <<'EOF');
+my ($trace) = @_;
+$trace =~ s/\(eval (\d+)\)/$locations{$1 - 1}/g;
+$trace;
+EOF \end{perlcode}
+
+  Notice that we're subtracting one. The {\tt eval} number that triggered the error will be one greater than the one we stored.\footnote{Good API design would resolve this ahead-of-time rather
+  than at lookup time. I haven't gotten around to changing it yet though.}
+
+  Now that we have this mechanism, we can go back and convert {\tt eval} calls into \verb|meta::eval_in|:
+
+\lstset{caption={snippets/using-eval-in},name={snippets/using-eval-in}}\begin{perlcode}
+meta::define_form 'function', sub {
+  my ($name, $value) = @_;
+  meta::externalize $name, "function::$name",
+    meta::eval_in("sub {\n$value\n}", "function::$name");
+};
+
+meta::define_form 'internal_function', sub {
+  my ($name, $value) = @_;
+  *{$name} =
+    meta::eval_in("sub {\n$value\n}", "internal_function::$name");
+}; \end{perlcode}
+\chapter{Archiving state}\label{sec:archiving-state}
+  Suppose you're about to do something risky with a script and you want to take a snapshot that you can restore to. You could copy into another file, but that's a brute-force approach and it
+  requires you to exit the script's shell. Better is to have some kind of internal state management, and that's where explicit states come into play.
+
+  Remember that \verb|%data| is just a variable; we can do all of the usual things with it. We can store a state by doing a partial serialization into an attribute, and we can restore from
+  that state by {\tt eval}ing that attribute. To do this we're going to need another namespace.
+
+\lstset{caption={snippets/state-type},name={snippets/state-type}}\begin{perlcode}
+meta::meta('type::state', <<'EOF');
+# No action when a state is defined
+meta::define_form 'state', \&meta::bootstrap::implementation;
+EOF \end{perlcode}
+
+\section{Saving state}\label{sec:archiving-state-saving}
+    It's tempting to think that this code would do what we want:
+
+\begin{verbatim}
+# Won't work:
+associate("state::$_[0]", serialize());
+\end{verbatim}
+
+    Unfortunately, {\tt serialize} generates three things that we don't want. These are the bootstrap section at the beginning, the call to {\tt internal::main()} at the end, and any attribute
+    in the {\tt state::} namespace.\footnote{If some states contained others, the script size would grow exponentially in the number of states.} We'll need to write a separate function to
+    serialize just what we want:
+
+\lstset{caption={snippets/current-state-function},name={snippets/current-state-function}}\begin{perlcode}
+meta::function('current-state', <<'EOF');
+my @valid_keys   = grep ! /^state::/, sort keys %data;
+my @ordered_keys = (grep(/^meta::/, @valid_keys), grep(! /^meta::/, @valid_keys));
+join "\n", map serialize_single($_), @ordered_keys;
+EOF \end{perlcode}
+
+    \noindent And here's a {\tt save-state} function to automate the state creation process:
+
+\lstset{caption={snippets/save-state-function},name={snippets/save-state-function}}\begin{perlcode}
+meta::function('save-state', <<'EOF');
+my ($state_name) = @_;
+associate("state::$state_name", &{'current-state'}());
+EOF \end{perlcode}
+
+\section{Loading state}\label{sec:archiving-state-loading}
+    This is not as straightforward as saving state. Because we're modifying \verb|%data| live, we have to be careful about what happens in the event that something goes wrong. We also don't
+    want to have stray \verb|%data| elements or externalized functions. The easiest way to defend against errors is to save the current state before applying a new one. Here's the
+    implementation of {\tt load-state}:
+
+\lstset{caption={snippets/load-state-function},name={snippets/load-state-function}}\begin{perlcode}
+meta::function('load-state', <<'EOF');
+my ($state_name) = @_;
+my $state = retrieve("state::$state_name");
+&{'save-state'}('_');     # Make a backup
+delete $data{$_} for grep ! /^state::/, keys %data;
+%externalized_functions = ();
+eval($state);             # Apply the new state
+warn $@ if $@;
+verify();                 # Make sure it worked
+EOF \end{perlcode}
+
+    If the load failed for some reason, you can restore using \verb|load-state _|. If it failed badly enough to bork your {\tt load-state} function, then you have a problem.
+
+\section{The {\tt hypothetically} function}\label{sec:archiving-state-hypothetically}
+    Related to state management is a function called {\tt hypothetically}, which lets you try something out and then revert. It's used internally to examine the state of a modified copy
+    without actually committing changes.\footnote{This is covered in \Ref{chapter}{sec:cloning-and-inheritance}.} Here's how it's defined:
+
+\lstset{caption={snippets/hypothetically-function},name={snippets/hypothetically-function}}\begin{perlcode}
+meta::internal_function('hypothetically', <<'EOF');
+my %data_backup   = %data;
+my ($side_effect) = @_;
+my $return_value  = eval {&$side_effect()};
+%data = %data_backup;
+die $@ if $@;
+$return_value;
+EOF \end{perlcode}
+
+    You can use it like this:
+
+\begin{verbatim}
+my $x = hypothetically(sub {
+  associate('data::foo', '10');
+  retrieve('data::foo');
+});
+my $y = retrieve('data::foo');
+# now $x eq '10' and $y is undef
+\end{verbatim}
+\chapter{Cloning and inheritance}\label{sec:cloning-and-inheritance}
+  This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
+  going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
+  that way and came up with the inheritance mechanism that's used now.
+
+  Inheritance isn't as simple as copying all of the attributes from one script into another. Certain namespaces like {\tt data::} are script-specific, for instance. We'll need to have some way
+  to keep track of which namespaces should be inherited.
+
+  Another issue is getting attributes from one script into another. My first implementation of inheritance retrieved each attribute individually. It used {\tt ls} and {\tt cat} for the
+  transfer, which involved $O(n)$ runs of whichever script was being inherited from. Obviously it was really slow. $O(n)$ runs of a function containing $n$ functions means $O(n^2)$ total time,
+  and Perl isn't blazingly fast at {\tt eval}ing functions. Later on I extended {\tt serialize} to return a bundle of attributes that the child then {\tt eval}ed.
+
+\section{Tracking inheritability}\label{sec:cloning-and-inheritance-tracking-inheritability}
+    We're going to need another toplevel field if we want to store data about data types. We can't use \verb|%data|, since we don't really want to save it (whatever we're storing would be
+    regenerated automatically anyway). What we really need is a way to store transient information:
+
+\begin{verbatim}
+my %data;
+my %externalized_functions;
+my %datatypes;
+my %transient;
+\end{verbatim}
+
+    \verb|%transient| does nothing except store stuff while the script is running, and all of its information is discarded when the script exits. It's basically just a temporary workspace
+    where we can stash stuff.
+
+    We can now use \verb|%transient| to store things about data types. For convenience let's define {\tt meta::configure} to do this for us:\footnote{For some reason I decided to store the
+    keys in the odd order of {\tt option}-{\tt namespace} instead of the other way around. I'm still not sure why I did it this way, but it doesn't seem to cause problems.}
+
+\lstset{caption={snippets/meta-configure},name={snippets/meta-configure}}\begin{perlcode}
+meta::meta('configure', <<'EOF');
+sub meta::configure {
+  my ($datatype, %options) = @_;
+  $transient{$_}{$datatype} = $options{$_} for keys %options;
+}
+EOF \end{perlcode}
+
+    Now we can add a configuration to each datatype we define:
+
+\begin{verbatim}
+meta::meta('type::function', <<'EOF');
+meta::configure 'function', inherit => 1;
+meta::define_form 'function', ...;
+EOF
+
+meta::meta('type::data', <<'EOF');
+meta::configure 'data', inherit => 0;
+meta::define_form 'data', ...;
+EOF
+
+meta::meta('type::internal_function', <<'EOF');
+meta::configure 'internal_function', inherit => 1;
+...
+EOF
+
+meta::meta('type::bootstrap', <<'EOF');
+meta::configure 'bootstrap', inherit => 1;
+...
+EOF
+
+meta::meta('type::state', <<'EOF');
+meta::configure 'state', inherit => 0;
+...
+EOF
+\end{verbatim}
+
+\section{Extensions to {\tt serialize}}\label{sec:cloning-and-inheritance-extensions-to-serialize}
+    {\tt serialize} needs to be able to give us a bundle of code to create just the attributes that should be inherited. While we're at it, it would also be nice if it handed us just the {\tt
+    meta::} attributes and then just the non-{\tt meta::} attributes. This way we can make sure that the {\tt meta::} attributes didn't break anything and bail out early if they did.
+
+    None of this is particularly challenging, but given that we're going to invoke {\tt serialize} externally we should probably fix the \verb|%options| stuff. (The last thing we want to write
+    is something like \verb|qx($script serialize partial 1 meta 1 inheritable 1)|). What we need is an adapter that turns command-line options into Perl hashes.\footnote{OK, I'm making a jump
+    here. Later it will become clearer why it's good to do it this way.} Here's a function that uses {\tt Getopt}-style parsing:
+
+\lstset{caption={snippets/separate-options-function},name={snippets/separate-options-function}}\begin{perlcode}
+meta::internal_function('separate_options', <<'EOF');
+# Things with one dash are short-form options, two dashes are long-form.
+# Characters after short-form are combined; so -auv4 becomes -a -u -v -4.
+# Also finds equivalences; so --foo=bar separates into $$options{'--foo'} eq 'bar'.
+# Stops processing at the -- option, and removes it. Everything after that
+# is considered to be an 'other' argument.
+
+# The only form not supported by this function is the short-form with argument.
+# To pass keyed arguments, you need to use long-form options.
+my @parseable;
+push @parseable, shift @_ until ! @_ or $_[0] eq '--';
+
+my @singles = grep /^-[^-]/, @parseable;
+my @longs   = grep /^--/,    @parseable;
+my @others  = grep ! /^-/,   @parseable;
+my @singles = map /-(.{2,})/ ? map("-$_", split(//, $1)) : $_, @singles;
+my %options;
+  $options{$1} = $2 for grep /^([^=]+)=(.*)$/, @longs;
+++$options{$_}      for grep ! /=/, @singles, @longs;
+
+({%options}, @others, @_);
+EOF \end{perlcode}
+
+    The output of this function is a reference to a hash of any keyword arguments (where short-form arguments are treated as increments) followed by any non-switch arguments (either because
+    they came after \verb|--| or because they didn't start with a dash at all. For example, processing the arguments \verb|-xy --z=foo bar| would yield
+    \verb|({-x => 1, -y => 1, --z => foo}, bar)|.\footnote{Given the similarity, I don't remember why I didn't just use {\tt Getopt::Long} for this stuff. I think I must have been having a NIH
+    day.}
+
+    Given the ability to pipe options into {\tt serialize} on the command-line, we just need to have it support a reasonably flexible selection interface. We'll later need to have {\tt ls}
+    support the same options, so let's factor the key selector into its own function:
+
+\lstset{caption={snippets/select-keys-function},name={snippets/select-keys-function}}\begin{perlcode}
+meta::internal_function('select_keys', <<'EOF');
+my %options  = @_;
+my $criteria = $options{'--criteria'} ||
+               $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+grep /$criteria/ && (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-S'} || ! /^state::/o) &&
+                    (! $options{'-m'} ||   /^meta::/o) &&
+                    (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+EOF \end{perlcode}
+
+    This function takes the \verb|%options| hash output by \verb|separate_options| as input and returns a list of keys into \verb|%data|. The somewhat odd logical structure of the {\tt grep}
+    predicate is just implication: ``if \verb|$options{'-i'}| is set, then the key's namespace must be inheritable.''
+
+    The new {\tt serialize} function is fairly simple; most of the heavy lifting is already done:
+
+\lstset{caption={snippets/serialize-final},name={snippets/serialize-final}}\begin{perlcode}
+meta::function('serialize', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+my $partial = $$options{'-p'};
+my $criteria = join '|', @criteria;
+my @attributes = map serialize_single($_), 
+  select_keys(%$options, '-m' => 1, '--criteria' => $criteria),
+  select_keys(%$options, '-M' => 1, '--criteria' => $criteria);
+my @final_array = @{$partial ? \@attributes :
+                               [retrieve('bootstrap::initialization'),
+                                @attributes,
+                                'internal::main();', '',
+                                '__END__']};
+join "\n", @final_array;
+EOF \end{perlcode}
+
+    {\tt -m} and {\tt -M} select {\tt meta::} and non-{\tt meta::} attributes, respectively. We also provide criteria if the user has selected any. They're joined together with a pipe symbol
+    because that forms a disjunction inside a regular expression (and criteria are regexps for attribute names). We also, somewhat importantly, have a {\tt -p} switch to produce a partial
+    serialization. This leaves off the bootstrap code and the {\tt internal::main()} call. The only difference between this and {\tt current-state} is that {\tt current-state} also leaves out
+    {\tt state::} attributes.\footnote{This version of {\tt serialize} also will do that for you if you pass the {\tt -S} option.}
+
+\section{The {\tt update-from} function}\label{sec:cloning-and-inheritance-the-update-from-function}
+    Here's where things start to get interesting. {\tt update-from} handles the case where you have two scripts {\tt base} and {\tt child}, and you want {\tt child} to inherit stuff from {\tt
+    base}.\footnote{``Stuff'' is deliberately vague. Presumably we want to inherit every inheritable attribute though.} Here's a basic implementation:
+
+\lstset{caption={snippets/update-from-function},name={snippets/update-from-function}}\begin{perlcode}
+meta::function('update-from', <<'EOF');
+my ($options, @targets) = separate_options(@_);
+my %options = %$options;
+@targets or die 'Must specify at least one target to update from';
+my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+my $force      =    $options{'-f'} || $options{'--force'};
+
+&{'save-state'}('before-update') if $save_state;
+for my $target (@targets) {
+  eval qx($target serialize -ipm);
+  eval qx($target serialize -ipM);
+  reload();     # We're about to define this
+  unless (verify()) {
+    if ($force) {
+      warn 'Verification failed, but keeping new state';
+    } else {
+      warn "Verification failed after $target; reverting";
+      return &{'load-state'}('before-update') if $save_state;
+    }
+  }
+}
+EOF \end{perlcode}
+
+    If {\tt child} has this function, you can update it this way (assuming you've set execute permissions):
+
+\begin{verbatim}
+$ ./child update-from ./base
+$
+\end{verbatim}
+
+    If all goes well it will execute without failing. {\tt base} will be run twice: once to grab inheritable {\tt meta::}-attributes, again to grab inheritable other attributes.
+
+    The {\tt reload} function just calls {\tt execute} on each member of \verb|%data|. It's there to make sure that the new attributes and the old attributes work well together. Here's the
+    definition:
+
+\lstset{caption={snippets/reload-function},name={snippets/reload-function}}\begin{perlcode}
+meta::function('reload', <<'EOF');
+execute($_) for grep ! /^bootstrap::/, keys %data;
+EOF \end{perlcode}
+
+\section{Managing parents}\label{sec:cloning-and-inheritance-managing-parents}
+    If you're using scripts as add-on modules, it gets tiring to issue $n$ {\tt update-from} commands when you're using $n$ modules. Further, you have to type out the whole path of the module,
+    which might be in a separate directory. Finally, attributes that later get deleted or renamed in the addon modules won't be cleaned up in the child script. The way we've got inheritance
+    set up is woefully incomplete.
+
+    The missing piece is parent tracking. We need to keep track of two things:
+
+\begin{enumerate}
+\item{Which scripts have I inherited from?}
+\item{Which properties did I inherit from each one?}
+\end{enumerate}
+
+    Fortunately this isn't too hard. We just need a new namespace and some new functions.
+
+\subsection{The {\tt parent::} namespace}\label{sec:cloning-and-inheritance-the-parent-namespace}
+      We can use the {\tt parent::} namespace to answer both of the above questions. Each attribute will take its name from the path to a script (e.g.~{\tt parent::/usr/bin/script1}), and its
+      contents will be a newline-separated string of the attributes inherited from that script. Here's the type definition:
+
+\lstset{caption={snippets/parent-type},name={snippets/parent-type}}\begin{perlcode}
+meta::meta('type::parent', <<'EOF');
+meta::configure 'parent', inherit => 1; # Transitive parents (explained below)
+meta::define_form 'parent', \&meta::bootstrap::implementation;
+EOF \end{perlcode}
+
+      Now we need to update {\tt update-from} to populate this namespace. Before we do, though, we need to define uniqueness.
+
+\subsection{Uniqueness}\label{sec:cloning-and-inheritance-uniqueness}
+      Let's suppose you've got three objects {\tt a}, {\tt b}, and {\tt c}, and each inherits from the previous one.\footnote{I'm presupposing that inheritance works automatically even though
+      we haven't defined it quite yet.} Then {\tt b}'s parent is {\tt a}, and {\tt c}'s parent is {\tt b}. It's important for {\tt c} to know that {\tt a} is also its parent. The reason is
+      that otherwise you're forced to update {\tt b} before {\tt c}, since {\tt c} inherits only from {\tt b}.
+
+      It's ultimately for this reason that {\tt parent::} attributes get inherited. Inheritance is certainly transitive (if {\tt c} inherits from {\tt b}, which inherits from {\tt a}, then
+      {\tt c} inherits from {\tt a}). There are, however, some logistical matters to be dealt with. The most important one has to do with ordering.
+
+      It shouldn't matter in which order the parents are inherited from. This is an interesting requirement, because it means that the things an object inherits from each of its parents form
+      disjoint sets. The only way to pull this off is if each object keeps track of how it's different from its own parents. The attributes that the child has but the parent doesn't are
+      considered unique.
+
+\subsection{Updating {\tt ls} and {\tt serialize}}\label{sec:cloning-and-inheritance-updating-ls-and-serialize}
+      We need a way to ask {\tt ls} for the list of unique attributes for an object, and then ask {\tt serialize} to give us just those attributes. To do this, we'll add a {\tt -u} option (and
+      for symmetry a complement {\tt -U}) to \verb|select_keys|:
+
+\lstset{caption={snippets/select-keys-final},name={snippets/select-keys-final}}\begin{perlcode}
+meta::internal_function('select_keys', <<'EOF');
+my %options   = @_;
+my %inherited = map {$_ => 1} split /\n/o, join "\n",
+                  retrieve(grep /^parent::/o, sort keys %data)
+                  if $options{'-u'} or $options{'-U'};
+my $criteria  = $options{'--criteria'} ||
+                $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+grep /$criteria/ && (! $options{'-u'} || ! $inherited{$_}) &&
+                    (! $options{'-U'} ||   $inherited{$_}) &&
+                    (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-S'} || ! /^state::/o) &&
+                    (! $options{'-m'} ||   /^meta::/o) &&
+                    (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+EOF \end{perlcode}
+
+      The extra logic here searches through all of the {\tt parent::} attributes to find properties that the parents also contain. If any parent contains one, then the property isn't unique.
+
+      {\tt serialize} will get this new behavior automatically, since it just forwards its options to \verb|select_keys|. But we haven't modified {\tt ls} in a long time; it doesn't know
+      anything about options. There are actually quite a few enhancements that we could make to {\tt ls}, but for now let's keep it simple and change it only as necessary:
+
+\lstset{caption={snippets/ls-with-options},name={snippets/ls-with-options}}\begin{perlcode}
+meta::function('ls', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+join "\n", select_keys('--criteria' => join '|', @criteria, %$options);
+EOF \end{perlcode}
+
+      Now you can say things like {\tt ./script ls -iu} to get a listing of attributes that are both inheritable and unique.
+
+\subsection{An updated {\tt update-from} function}\label{sec:cloning-and-inheritance-an-updated-update-from-function}
+      {\tt update-from} now has three new responsibilities. One is to record the fact that we updated from another script, which involves creating a new {\tt parent::} attribute for each
+      inheritance operation. Another is to ask each new parent which attributes it intends to define. The last thing it needs to do is clean up any attributes that some parent used to define
+      but no longer does.\footnote{Due to how {\tt update-from} is structured, this step actually happens first.} Here's the new implementation:
+
+\lstset{caption={snippets/update-from-final},name={snippets/update-from-final}}\begin{perlcode}
+my ($options, @targets) = separate_options(@_);
+my %options = %$options;
+@targets or die 'Must specify at least one target to update from';
+my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+my $no_parents =    $options{'-P'} || $options{'--no-parent'} || $options{'--no-parents'};
+my $force      =    $options{'-f'} || $options{'--force'};
+
+&{'save-state'}('before-update') if $save_state;
+for my $target (@targets) {
+  # The -a flag will become relevant once we add formatting to 'ls'
+  my $attributes = join '', qx($target ls -aiu);
+  warn "Skipping unreachable object $target" unless $attributes;
+  if ($attributes) {
+    # Remove keys that the parent used to define but doesn't anymore:
+    rm(split /\n/, retrieve("parent::$target")) if $data{"parent::$target"};
+    associate("parent::$target", $attributes) unless $no_parents;
+    eval qx($target serialize -ipmu);
+    eval qx($target serialize -ipMu);
+    warn $@ if $@;
+    reload();
+
+    if (verify()) {
+      print "Successfully updated from $_[0]. ",
+            "Run 'load-state before-update' to undo this change.\n" if $save_state;
+    } elsif ($force) {
+      warn 'The object failed verification, but the failure state has been ' .
+           'kept because --force was specified.';
+      warn 'At this point your object will not save properly, though backup ' .
+           'copies will be created.';
+      print "Run 'load-state before-update' to undo the update and return to ",
+            "a working state.\n" if $save_state;
+    } else {
+      warn 'Verification failed after the upgrade was complete.';
+      print "$0 has been reverted to its pre-upgrade state.\n" if $save_state;
+      print "If you want to upgrade and keep the failure state, then run ",
+            "'update-from $target --force'." if $save_state;
+      return &{'load-state'}('before-update') if $save_state;
+    }
+  }
+} \end{perlcode}
+
+\subsection{The {\tt update} function}\label{sec:cloning-and-inheritance-the-update-function}
+      This new {\tt update-from} function contains all of the logic to perform individual updates, but it still requires you to list the parent objects. There isn't any need to do this
+      manually though, since if we look for {\tt parent::} attributes we can get the list. That's what {\tt update} does:
+
+\lstset{caption={snippets/update-function},name={snippets/update-function}}\begin{perlcode}
+meta::function('update', <<'EOF');
+&{'update-from'}(@_, grep s/^parent:://o, sort keys %data);
+EOF \end{perlcode}
+
+\section{{\tt clone} and {\tt child}}\label{sec:cloning-and-inheritance-clone-and-child}
+    As things stand creating children from an object is a bit cumbersome. We have to manually copy the object and then run {\tt update-from} once to get the parent to work out, which seems
+    like too much work. Let's take care of copying first by creating a {\tt clone} function:
+
+\lstset{caption={snippets/clone-function},name={snippets/clone-function}}\begin{perlcode}
+meta::function('clone', <<'EOF');
+open my $file, '>', $_[0];
+print $file serialize();
+close $file;
+chmod 0700, $file;
+EOF \end{perlcode}
+
+    Now you can clone an object as it exists at any given moment. More interesting, though, is the related {\tt child} function, which creates an object already setup for inheritance:
+
+\lstset{caption={snippets/child-function},name={snippets/child-function}}\begin{perlcode}
+meta::function('child', <<'EOF');
+my ($child_name) = @_;
+clone($child_name);
+qx($child_name update-from $0 -n);
+EOF \end{perlcode}
+
+    {\tt object} implements this function; so, for example, you could inherit from it like this:
+
+\begin{verbatim}
+$ /path/to/object child ./foo
+$ ./foo update -n
+$ ./foo ls -a parent::
+parent::/path/to/object
+$
+\end{verbatim}
+\end{document}
