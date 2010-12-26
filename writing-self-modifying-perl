@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.mHay/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.yySF/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1912,6 +1912,97 @@ meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
     - end
 __9e6b6508b59b6e5c3b0355635d60c292
 
+meta::section('archiving-state', <<'__c4e5418031a886a29984fcfab0d474fa');
+- sc Archiving state | sec:archiving-state
+  Suppose you're about to do something risky with a script and you want to take a snapshot that you can restore to. You could copy into another file, but that's a brute-force approach and it
+  requires you to exit the script's shell. Better is to have some kind of internal state management, and that's where explicit states come into play.
+
+  Remember that \verb|%data| is just a variable; we can do all of the usual things with it. We can store a state by doing a partial serialization into an attribute, and we can restore from
+  that state by {\tt eval}ing that attribute. To do this we're going to need another namespace.
+
+  - verbatim << end
+    meta::meta('type::state', <<'EOF');
+    # No action when a state is defined
+    meta::define_form 'state', \&meta::bootstrap::implementation;
+    EOF
+  - end
+
+  - s1 Saving state | sec:archiving-state-saving
+    It's tempting to think that this code would do what we want:
+
+    - verbatim << end
+      # Won't work:
+      associate("state::$_[0]", serialize());
+    - end
+
+    Unfortunately, {\tt serialize} generates three things that we don't want. These are the bootstrap section at the beginning, the call to {\tt internal::main()} at the end, and any attribute
+    in the {\tt state::} namespace.\footnote{If some states contained others, the script size would grow exponentially in the number of states.} We'll need to write a separate function to
+    serialize just what we want:
+
+    - verbatim << end
+      meta::function('current-state', <<'EOF');
+      my @valid_keys   = grep ! /^state::/, sort keys %data;
+      my @ordered_keys = (grep(/^meta::/, @valid_keys), grep(! /^meta::/, @valid_keys));
+      join "\n", map serialize_single($_), @ordered_keys;
+      EOF
+    - end
+
+    \noindent And here's a {\tt save-state} function to automate the state creation process:
+
+    - verbatim << end
+      meta::function('save-state', <<'EOF');
+      my ($state_name) = @_;
+      associate("state::$state_name", &{'current-state'}());
+      EOF
+    - end
+
+  - s1 Loading state | sec:archiving-state-loading
+    This is not as straightforward as saving state. Because we're modifying \verb|%data| live, we have to be careful about what happens in the event that something goes wrong. We also don't
+    want to have stray \verb|%data| elements or externalized functions. The easiest way to defend against errors is to save the current state before applying a new one. Here's the
+    implementation of {\tt load-state}:
+
+    - verbatim << end
+      meta::function('load-state', <<'EOF');
+      my ($state_name) = @_;
+      my $state = retrieve("state::$state_name");
+      &{'save-state'}('_');     # Make a backup
+      delete $data{$_} for grep ! /^state::/, keys %data;
+      %externalized_functions = ();
+      eval($state);             # Apply the new state
+      warn $@ if $@;
+      verify();                 # Make sure it worked
+      EOF
+    - end
+
+    If the load failed for some reason, you can restore using \verb|load-state _|. If it failed badly enough to bork your {\tt load-state} function, then you have a problem.
+
+  - s1 The {\tt hypothetically} function | sec:archiving-state-hypothetically
+    Related to state management is a function called {\tt hypothetically}, which lets you try something out and then revert. It's used internally to examine the state of a modified copy
+    without actually committing changes.\footnote{This is covered in \Ref{chapter}{sec:cloning-and-inheritance}.} Here's how it's defined:
+
+    - verbatim << end
+      meta::internal_function('hypothetically', <<'EOF');
+      my %data_backup   = %data;
+      my ($side_effect) = @_;
+      my $return_value  = eval {&$side_effect()};
+      %data = %data_backup;
+      die $@ if $@;
+      $return_value;
+      EOF
+    - end
+
+    You can use it like this:
+
+    - verbatim << end
+      my $x = hypothetically(sub {
+        associate('data::foo', '10');
+        retrieve('data::foo');
+      });
+      my $y = retrieve('data::foo');
+      # now $x eq '10' and $y is undef
+    - end
+__c4e5418031a886a29984fcfab0d474fa
+
 meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
 - sc Building the interface | sec:building-the-interface
   Now that we've got attribute storage working, let's build a command-line interface so that we don't have to edit these files by hand anymore. There are a couple of things that need to
@@ -2062,10 +2153,150 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('eval-backtraces', <<'__23d315cb25bfe3195e7a0d9cfea213fc');
-- s1 {\tt eval} backtraces | sec:eval-backtraces
-  
-__23d315cb25bfe3195e7a0d9cfea213fc
+meta::section('cloning-and-inheritance', <<'__b1a4c2d5bfe45f8442c63a2f3fae4335');
+- sc Cloning and inheritance | sec:cloning-and-inheritance
+  This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
+  going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
+  that way and came up with the inheritance mechanism that's used now.
+
+  Inheritance isn't as simple as copying all of the attributes from one script into another. Certain namespaces like {\tt data::} are script-specific, for instance. We'll need to have some way
+  to keep track of which namespaces should be inherited.
+
+  Another issue is getting attributes from one script into another. My first implementation of inheritance retrieved each attribute individually. It used {\tt ls} and {\tt cat} for the
+  transfer, which involved $O(n)$ runs of whichever script was being inherited from. Obviously it was really slow. $O(n)$ runs of a function containing $n$ functions means $O(n^2)$ total time,
+  and Perl isn't blazingly fast at {\tt eval}ing functions. Later on I extended {\tt serialize} to return a bundle of attributes that the child then {\tt eval}ed.
+
+  - s1 Tracking inheritability | sec:cloning-and-inheritance-tracking-inheritability
+    We're going to need another toplevel field if we want to store data about data types. We can't use \verb|%data|, since we don't really want to save it (whatever we're storing would be
+    regenerated automatically anyway). What we really need is a way to store transient information:
+
+    - verbatim << end
+      my %data;
+      my %externalized_functions;
+      my %datatypes;
+      my %transient;
+    - end
+
+    \verb|%transient| does nothing except store stuff while the script is running, and all of its information is discarded when the script exits. It's basically just a temporary workspace
+    where we can stash stuff.
+
+    We can now use \verb|%transient| to store things about data types. For convenience let's define {\tt meta::configure} to do this for us:\footnote{For some reason I decided to store the
+    keys in the odd order of {\tt option}-{\tt namespace} instead of the other way around. I'm still not sure why I did it this way, but it doesn't seem to cause problems.}
+
+    - verbatim << end
+      meta::meta('configure', <<'EOF');
+      sub meta::configure {
+        my ($datatype, %options) = @_;
+        $transient{$_}{$datatype} = $options{$_} for keys %options;
+      }
+      EOF
+    - end
+
+    Now we can add a configuration to each datatype we define:
+
+    - verbatim << end
+      meta::meta('type::function', <<'EOF');
+      meta::configure 'function', inherit => 1;
+      meta::define_form 'function', ...;
+      EOF
+
+      meta::meta('type::data', <<'EOF');
+      meta::configure 'data', inherit => 0;
+      meta::define_form 'data', ...;
+      EOF
+
+      meta::meta('type::internal_function', <<'EOF');
+      meta::configure 'internal_function', inherit => 1;
+      ...
+      EOF
+
+      meta::meta('type::bootstrap', <<'EOF');
+      meta::configure 'bootstrap', inherit => 1;
+      ...
+      EOF
+
+      meta::meta('type::state', <<'EOF');
+      meta::configure 'state', inherit => 0;
+      ...
+      EOF
+    - end
+__b1a4c2d5bfe45f8442c63a2f3fae4335
+
+meta::section('eval-backtraces', <<'__c84e542eb3f1842442f3b16d2c7a9057');
+- sc {\tt eval} backtraces | sec:eval-backtraces
+  Our script is fairly awesome so far. It prevents us from creating attributes in namespaces that don't exist, since that would cause incorrect serialization, it verifies before it saves, etc.
+  But there's one problem. Take a look at the error messages we get:
+
+  - verbatim << end
+    $ perl examples/some-improvements
+    examples/some-improvements$ create foo::bar
+    Namespace foo does not exist at (eval 9) line 4.
+    examples/some-improvements$
+  - end
+
+  If there's a problem in some attribute, we have no information about the location of the error other than ``eval $n$'' and the line number relative to that. {\tt object} solves this problem:
+
+  - verbatim << end
+    $ object
+    object$ create foo::bar
+      [error] Namespace foo does not exist at internal_function::associate line 4.
+    object$
+  - end
+
+  The key is to wrap {\tt eval} in such a way that we can later resolve the meaningless numbers into useful locations. And to do this, we're going to need to modify the bootstrap code again.
+
+  - verbatim << end
+    my %data;
+    my %externalized_functions;
+    my %datatypes;
+    my %locations;      # Maps eval-numbers to attribute names
+  - end
+
+  There's a beautiful hack to handle the {\tt eval} processing. Watch this (also in {\tt bootstrap::initialization}):\footnote{It actually doesn't have to be inside the bootstrap code, but it
+  doesn't change often and is useful to have around, so I decided to put it there to save time.}
+
+  - verbatim << end
+    sub meta::eval_in {
+      my ($what, $where) = @_;
+      # Obtain next eval-number and alias it to the designated location
+      @locations{eval('__FILE__') =~ /\(eval (\d+)\)/} = ($where);  # <- step 1
+      my $result = eval $what;                                      # <- step 2
+      $@ =~ s/\(eval \d+\)/$where/ if $@;
+      warn $@ if $@;
+      $result;
+    }
+  - end
+
+  By {\tt eval}ing \verb|__FILE__|, we get the current eval number. So the next one will be whatever we {\tt eval} next. This means that in the shell sessions above, \verb|%locations| contains
+  a mapping from {\tt 9} to \verb|internal_function::associate|. Here's the function that converts an {\tt eval} index into an attribute name:
+
+  - verbatim << end
+    meta::internal_function('translate_backtrace', <<'EOF');
+    my ($trace) = @_;
+    $trace =~ s/\(eval (\d+)\)/$locations{$1 - 1}/g;
+    $trace;
+    EOF
+  - end
+
+  Notice that we're subtracting one. The {\tt eval} number that triggered the error will be one greater than the one we stored.\footnote{Good API design would resolve this ahead-of-time rather
+  than at lookup time. I haven't gotten around to changing it yet though.}
+
+  Now that we have this mechanism, we can go back and convert {\tt eval} calls into \verb|meta::eval_in|:
+
+  - verbatim << end
+    meta::define_form 'function', sub {
+      my ($name, $value) = @_;
+      meta::externalize $name, "function::$name",
+        meta::eval_in("sub {\n$value\n}", "function::$name");
+    };
+
+    meta::define_form 'internal_function', sub {
+      my ($name, $value) = @_;
+      *{$name} =
+        meta::eval_in("sub {\n$value\n}", "internal_function::$name");
+    };
+  - end
+__c84e542eb3f1842442f3b16d2c7a9057
 
 meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
 - sc Introduction | sec:introduction
@@ -2096,7 +2327,7 @@ meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
   This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it. Proceed only with fortitude, determination, and Perl v5.10.
 __5bfc9fc5db0cf1868bf00937453017f1
 
-meta::section('main', <<'__831ae8b91d9a6d6726e4cac52e45d1bd');
+meta::section('main', <<'__9e953c309b71c4bb194d97bd2e3a0888');
 - documentclass report
 - include resource::header
 
@@ -2119,8 +2350,10 @@ meta::section('main', <<'__831ae8b91d9a6d6726e4cac52e45d1bd');
 
   - sp The Fun Stuff
   - include section::eval-backtraces
+  - include section::archiving-state
+  - include section::cloning-and-inheritance
 - end
-__831ae8b91d9a6d6726e4cac52e45d1bd
+__9e953c309b71c4bb194d97bd2e3a0888
 
 meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 - sc Namespaces | sec:namespaces
@@ -2852,7 +3085,7 @@ meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
     - end
 __8e4c94639b3eaee761268dc55e169ba6
 
-meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
+meta::section('some-improvements', <<'__948169b120a665bb2669df5878f114f5');
 - sc Some improvements | sec:some-improvements
   Let's step back for a minute and improve things a bit in preparation for some real awesomeness. There are few places that could use improvement. First, there isn't a way to get a list of
   defined attributes on an object without opening it by hand. Second, the interface exposes too many functions to the user; in particular, things like {\tt complete} aren't useful from the
@@ -3125,7 +3358,9 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
       - end
 
   - s1 Final result | sec:some-improvements-final-result
-    Integrating all of these improvements into the previous chapter's script yields this monumental piece of work:
+    Integrating all of these improvements into the previous chapter's script yields this monumental piece of work:\footnote{This is the last full listing I'll provide here. The remaining
+    chapters cover the concepts required to get from here to {\tt object}. At this point the stuff going on in {\tt object} should more or less make sense, though you'll want to use {\tt ls-a}
+    rather than {\tt ls} to get a full listing of attributes.}
 
     - perl examples/some-improvements << end
       #!/usr/bin/perl
@@ -3150,6 +3385,14 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
         eval $value;
       };
 
+      meta::meta('externalize', <<'EOF');
+      sub meta::externalize {
+        my ($name, $attribute, $implementation) = @_;
+        $externalized_functions{$name} = $attribute;
+        *{$name} = $implementation;
+      }
+      EOF
+
       meta::meta('type::bootstrap', <<'EOF');
       meta::define_form 'bootstrap', sub {};
       EOF
@@ -3157,7 +3400,7 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
       meta::meta('type::function', <<'EOF');
       meta::define_form 'function', sub {
         my ($name, $body) = @_;
-        *{$name} = eval "sub {\n$body\n}";
+        meta::externalize $name, "function::$name", eval "sub {\n$body\n}";
       };
       EOF
 
@@ -3172,7 +3415,7 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
       meta::define_form 'data', sub {
         # Define a basic editing interface:
         my ($name, $value) = @_;
-        *{$name} = sub {
+        meta::externalize $name, "data::$name", sub {
           my ($command, $value) = @_;
           return $data{"data::$name"} unless @_;
           $data{"data::$name"} = $value if $command eq '=';
@@ -3308,8 +3551,26 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
       }
       EOF
 
+      meta::function('ls', <<'EOF');
+      join "\n", sort keys %data;
+      EOF
+
+      meta::function('cp', <<'EOF');
+      associate($_[1], retrieve($_[0]));
+      EOF
+
+      meta::function('rm', <<'EOF');
+      delete @data{@_};
+      EOF
+
       meta::function('cat', <<'EOF');
       join "\n", @data{@_};
+      EOF
+
+      meta::function('create', <<'EOF');
+      return edit($_[0]) if exists $data{$_[0]};
+      associate($_[0], $_[1] || "# Attribute $_[0]");
+      edit($_[0]);
       EOF
 
       meta::function('set', <<'EOF');
@@ -3369,24 +3630,26 @@ meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
       meta::function('edit', <<'EOF');
       my $filename = '/tmp/' . rand();
       open my $file, '>', $filename;
-      print $file $data{$_[0]};
+      print $file retrieve($_[0]);
       close $file;
       system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
       open my $file, '<', $filename;
-      $data{$_[0]} = join '', <$file>;
+      associate($_[0]}, join '', <$file>);
       close $file;
       EOF
 
       meta::internal_function('internal::main', <<'EOF');
       my $initial_state = state();
-      my $command = shift @ARGV || $data{'data::default-action'};
+      my $command = shift @ARGV || retrieve('data::default-action');
       print &$command(@ARGV);
       save() if state() ne $initial_state;
       EOF
 
+      internal::main();
+
       __END__
     - end
-__449bd2a7862d864813d5ca1729063569
+__948169b120a665bb2669df5878f114f5
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');

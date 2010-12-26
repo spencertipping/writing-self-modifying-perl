@@ -20,6 +20,14 @@ meta::define_form 'meta', sub {
   eval $value;
 };
 
+meta::meta('externalize', <<'EOF');
+sub meta::externalize {
+  my ($name, $attribute, $implementation) = @_;
+  $externalized_functions{$name} = $attribute;
+  *{$name} = $implementation;
+}
+EOF
+
 meta::meta('type::bootstrap', <<'EOF');
 meta::define_form 'bootstrap', sub {};
 EOF
@@ -27,7 +35,7 @@ EOF
 meta::meta('type::function', <<'EOF');
 meta::define_form 'function', sub {
   my ($name, $body) = @_;
-  *{$name} = eval "sub {\n$body\n}";
+  meta::externalize $name, "function::$name", eval "sub {\n$body\n}";
 };
 EOF
 
@@ -42,7 +50,7 @@ meta::meta('type::data', <<'EOF');
 meta::define_form 'data', sub {
   # Define a basic editing interface:
   my ($name, $value) = @_;
-  *{$name} = sub {
+  meta::externalize $name, "data::$name", sub {
     my ($command, $value) = @_;
     return $data{"data::$name"} unless @_;
     $data{"data::$name"} = $value if $command eq '=';
@@ -178,8 +186,26 @@ if (verify()) {
 }
 EOF
 
+meta::function('ls', <<'EOF');
+join "\n", sort keys %data;
+EOF
+
+meta::function('cp', <<'EOF');
+associate($_[1], retrieve($_[0]));
+EOF
+
+meta::function('rm', <<'EOF');
+delete @data{@_};
+EOF
+
 meta::function('cat', <<'EOF');
 join "\n", @data{@_};
+EOF
+
+meta::function('create', <<'EOF');
+return edit($_[0]) if exists $data{$_[0]};
+associate($_[0], $_[1] || "# Attribute $_[0]");
+edit($_[0]);
 EOF
 
 meta::function('set', <<'EOF');
@@ -239,19 +265,21 @@ EOF
 meta::function('edit', <<'EOF');
 my $filename = '/tmp/' . rand();
 open my $file, '>', $filename;
-print $file $data{$_[0]};
+print $file retrieve($_[0]);
 close $file;
 system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
 open my $file, '<', $filename;
-$data{$_[0]} = join '', <$file>;
+associate($_[0]}, join '', <$file>);
 close $file;
 EOF
 
 meta::internal_function('internal::main', <<'EOF');
 my $initial_state = state();
-my $command = shift @ARGV || $data{'data::default-action'};
+my $command = shift @ARGV || retrieve('data::default-action');
 print &$command(@ARGV);
 save() if state() ne $initial_state;
 EOF
+
+internal::main();
 
 __END__
