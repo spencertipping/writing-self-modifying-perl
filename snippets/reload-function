@@ -1,0 +1,3 @@
+meta::function('reload', <<'EOF');
+execute($_) for grep ! /^bootstrap::/, keys %data;
+EOF

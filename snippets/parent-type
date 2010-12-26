@@ -1,0 +1,4 @@
+meta::meta('type::parent', <<'EOF');
+meta::configure 'parent', inherit => 1; # Transitive parents (explained below)
+meta::define_form 'parent', \&meta::bootstrap::implementation;
+EOF

@@ -1,0 +1,22 @@
+meta::function('update-from', <<'EOF');
+my ($options, @targets) = separate_options(@_);
+my %options = %$options;
+@targets or die 'Must specify at least one target to update from';
+my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+my $force      =    $options{'-f'} || $options{'--force'};
+
+&{'save-state'}('before-update') if $save_state;
+for my $target (@targets) {
+  eval qx($target serialize -ipm);
+  eval qx($target serialize -ipM);
+  reload();     # We're about to define this
+  unless (verify()) {
+    if ($force) {
+      warn 'Verification failed, but keeping new state';
+    } else {
+      warn "Verification failed after $target; reverting";
+      return &{'load-state'}('before-update') if $save_state;
+    }
+  }
+}
+EOF

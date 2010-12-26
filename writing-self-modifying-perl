@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.b95S/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.ddVW/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2153,7 +2153,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__cc8256519d644e59bb584dd0a4bdf004');
+meta::section('cloning-and-inheritance', <<'__24e10f4c622afe86938a70fe7a51d35d');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2296,7 +2296,98 @@ meta::section('cloning-and-inheritance', <<'__cc8256519d644e59bb584dd0a4bdf004')
       join "\n", @final_array;
       EOF
     - end
-__cc8256519d644e59bb584dd0a4bdf004
+
+    {\tt -m} and {\tt -M} select {\tt meta::} and non-{\tt meta::} attributes, respectively. We also provide criteria if the user has selected any. They're joined together with a pipe symbol
+    because that forms a disjunction inside a regular expression (and criteria are regexps for attribute names). We also, somewhat importantly, have a {\tt -p} switch to produce a partial
+    serialization. This leaves off the bootstrap code and the {\tt internal::main()} call. The only difference between this and {\tt current-state} is that {\tt current-state} also leaves out
+    {\tt state::} attributes.\footnote{This version of {\tt serialize} also will do that for you if you pass the {\tt -S} option.}
+
+  - s1 The {\tt update-from} function | sec:cloning-and-inheritance-the-update-from-function
+    Here's where things start to get interesting. {\tt update-from} handles the case where you have two scripts {\tt base} and {\tt child}, and you want {\tt child} to inherit stuff from {\tt
+    base}.\footnote{``Stuff'' is deliberately vague. Presumably we want to inherit every inheritable attribute though.} Here's a basic implementation:
+
+    - perl snippets/update-from-function << end
+      meta::function('update-from', <<'EOF');
+      my ($options, @targets) = separate_options(@_);
+      my %options = %$options;
+      @targets or die 'Must specify at least one target to update from';
+      my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+      my $force      =    $options{'-f'} || $options{'--force'};
+
+      &{'save-state'}('before-update') if $save_state;
+      for my $target (@targets) {
+        eval qx($target serialize -ipm);
+        eval qx($target serialize -ipM);
+        reload();     # We're about to define this
+        unless (verify()) {
+          if ($force) {
+            warn 'Verification failed, but keeping new state';
+          } else {
+            warn "Verification failed after $target; reverting";
+            return &{'load-state'}('before-update') if $save_state;
+          }
+        }
+      }
+      EOF
+    - end
+
+    If {\tt child} has this function, you can update it this way (assuming you've set execute permissions):
+
+    - verbatim << end
+      $ ./child update-from ./base
+      $
+    - end
+
+    If all goes well it will execute without failing. {\tt base} will be run twice: once to grab inheritable {\tt meta::}-attributes, again to grab inheritable other attributes.
+
+    The {\tt reload} function just calls {\tt execute} on each member of \verb|%data|. It's there to make sure that the new attributes and the old attributes work well together. Here's the
+    definition:
+
+    - perl snippets/reload-function << end
+      meta::function('reload', <<'EOF');
+      execute($_) for grep ! /^bootstrap::/, keys %data;
+      EOF
+    - end
+
+  - s1 Managing parents | sec:cloning-and-inheritance-managing-parents
+    If you're using scripts as add-on modules, it gets tiring to issue $n$ {\tt update-from} commands when you're using $n$ modules. Further, you have to type out the whole path of the module,
+    which might be in a separate directory. Finally, attributes that later get deleted or renamed in the addon modules won't be cleaned up in the child script. The way we've got inheritance
+    set up is woefully incomplete.
+
+    The missing piece is parent tracking. We need to keep track of two things:
+
+    - enumerate << end
+      - item Which scripts have I inherited from?
+      - item Which properties did I inherit from each one?
+    - end
+
+    Fortunately this isn't too hard. We just need a new namespace and some new functions.
+
+    - s2 The {\tt parent::} namespace | sec:cloning-and-inheritance-the-parent-namespace
+      We can use the {\tt parent::} namespace to answer both of the above questions. Each attribute will take its name from the path to a script (e.g.~{\tt parent::/usr/bin/script1}), and its
+      contents will be a newline-separated string of the attributes inherited from that script. Here's the type definition:
+
+      - perl snippets/parent-type << end
+        meta::meta('type::parent', <<'EOF');
+        meta::configure 'parent', inherit => 1; # Transitive parents (explained below)
+        meta::define_form 'parent', \&meta::bootstrap::implementation;
+        EOF
+      - end
+
+      Now we need to update {\tt update-from} to populate this namespace. Before we do, though, we need to define uniqueness.
+
+    - s2 Uniqueness | sec:cloning-and-inheritance-uniqueness
+      Let's suppose you've got three objects {\tt a}, {\tt b}, and {\tt c}, and each inherits from the previous one.\footnote{I'm presupposing that inheritance works automatically even though
+      we haven't defined it quite yet.} Then {\tt b}'s parent is {\tt a}, and {\tt c}'s parent is {\tt b}. It's important for {\tt c} to know that {\tt a} is also its parent. The reason is
+      that otherwise you're forced to update {\tt b} before {\tt c}, since {\tt c} inherits only from {\tt b}.
+
+      It's ultimately for this reason that {\tt parent::} attributes get inherited. Inheritance is certainly transitive (if {\tt c} inherits from {\tt b}, which inherits from {\tt a}, then
+      {\tt c} inherits from {\tt a}). There are, however, some logistical matters to be dealt with. The most important one has to do with ordering.
+
+      It shouldn't matter in which order the parents are inherited from. This is an interesting requirement, because it means that the things an object inherits from each of its parents form
+      disjoint sets. The only way to pull this off is if each object keeps track of how it's different from its own parents. The attributes that the child has but the parent doesn't are
+      considered unique.
+__24e10f4c622afe86938a70fe7a51d35d
 
 meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces
