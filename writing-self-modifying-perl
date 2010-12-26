@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.ddVW/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.06ps/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2153,7 +2153,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__24e10f4c622afe86938a70fe7a51d35d');
+meta::section('cloning-and-inheritance', <<'__dc47f9022e795924da83e4935b9a46f8');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2387,7 +2387,101 @@ meta::section('cloning-and-inheritance', <<'__24e10f4c622afe86938a70fe7a51d35d')
       It shouldn't matter in which order the parents are inherited from. This is an interesting requirement, because it means that the things an object inherits from each of its parents form
       disjoint sets. The only way to pull this off is if each object keeps track of how it's different from its own parents. The attributes that the child has but the parent doesn't are
       considered unique.
-__24e10f4c622afe86938a70fe7a51d35d
+
+    - s2 Updating {\tt ls} and {\tt serialize} | sec:cloning-and-inheritance-updating-ls-and-serialize
+      We need a way to ask {\tt ls} for the list of unique attributes for an object, and then ask {\tt serialize} to give us just those attributes. To do this, we'll add a {\tt -u} option (and
+      for symmetry a complement {\tt -U}) to \verb|select_keys|:
+
+      - perl snippets/select-keys-final << end
+        meta::internal_function('select_keys', <<'EOF');
+        my %options   = @_;
+        my %inherited = map {$_ => 1} split /\n/o, join "\n",
+                          retrieve(grep /^parent::/o, sort keys %data)
+                          if $options{'-u'} or $options{'-U'};
+        my $criteria  = $options{'--criteria'} ||
+                        $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+        grep /$criteria/ && (! $options{'-u'} || ! $inherited{$_}) &&
+                            (! $options{'-U'} ||   $inherited{$_}) &&
+                            (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                            (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                            (! $options{'-S'} || ! /^state::/o) &&
+                            (! $options{'-m'} ||   /^meta::/o) &&
+                            (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+        EOF
+      - end
+
+      The extra logic here searches through all of the {\tt parent::} attributes to find properties that the parents also contain. If any parent contains one, then the property isn't unique.
+
+      {\tt serialize} will get this new behavior automatically, since it just forwards its options to \verb|select_keys|. But we haven't modified {\tt ls} in a long time; it doesn't know
+      anything about options. There are actually quite a few enhancements that we could make to {\tt ls}, but for now let's keep it simple and change it only as necessary:
+
+      - perl snippets/ls-with-options << end
+        meta::function('ls', <<'EOF');
+        my ($options, @criteria) = separate_options(@_);
+        join "\n", select_keys('--criteria' => join '|', @criteria, %$options);
+        EOF
+      - end
+
+      Now you can say things like {\tt ./script ls -iu} to get a listing of attributes that are both inheritable and unique.
+
+    - s2 An updated {\tt update-from} function | sec:cloning-and-inheritance-an-updated-update-from-function
+      {\tt update-from} now has three new responsibilities. One is to record the fact that we updated from another script, which involves creating a new {\tt parent::} attribute for each
+      inheritance operation. Another is to ask each new parent which attributes it intends to define. The last thing it needs to do is clean up any attributes that some parent used to define
+      but no longer does.\footnote{Due to how {\tt update-from} is structured, this step actually happens first.} Here's the new implementation:
+
+      - perl snippets/update-from-final << end
+        my ($options, @targets) = separate_options(@_);
+        my %options = %$options;
+        @targets or die 'Must specify at least one target to update from';
+        my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+        my $no_parents =    $options{'-P'} || $options{'--no-parent'} || $options{'--no-parents'};
+        my $force      =    $options{'-f'} || $options{'--force'};
+
+        &{'save-state'}('before-update') if $save_state;
+        for my $target (@targets) {
+          # The -a flag will become relevant once we add formatting to 'ls'
+          my $attributes = join '', qx($target ls -aiu);
+          warn "Skipping unreachable object $target" unless $attributes;
+          if ($attributes) {
+            # Remove keys that the parent used to define but doesn't anymore:
+            rm(split /\n/, retrieve("parent::$target")) if $data{"parent::$target"};
+            associate("parent::$target", $attributes) unless $no_parents;
+            eval qx($target serialize -ipmu);
+            eval qx($target serialize -ipMu);
+            warn $@ if $@;
+            reload();
+
+            if (verify()) {
+              print "Successfully updated from $_[0]. ",
+                    "Run 'load-state before-update' to undo this change.\n" if $save_state;
+            } elsif ($force) {
+              warn 'The object failed verification, but the failure state has been ' .
+                   'kept because --force was specified.';
+              warn 'At this point your object will not save properly, though backup ' .
+                   'copies will be created.';
+              print "Run 'load-state before-update' to undo the update and return to ",
+                    "a working state.\n" if $save_state;
+            } else {
+              warn 'Verification failed after the upgrade was complete.';
+              print "$0 has been reverted to its pre-upgrade state.\n" if $save_state;
+              print "If you want to upgrade and keep the failure state, then run ",
+                    "'update-from $target --force'." if $save_state;
+              return &{'load-state'}('before-update') if $save_state;
+            }
+          }
+        }
+      - end
+
+    - s2 The {\tt update} function | sec:cloning-and-inheritance-the-update-function
+      This new {\tt update-from} function contains all of the logic to perform individual updates, but it still requires you to list the parent objects. There isn't any need to do this
+      manually though, since if we look for {\tt parent::} attributes we can get the list. That's what {\tt update} does:
+
+      - perl snippets/update-function << end
+        meta::function('update', <<'EOF');
+        &{'update-from'}(@_, grep s/^parent:://o, sort keys %data);
+        EOF
+      - end
+__dc47f9022e795924da83e4935b9a46f8
 
 meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces
@@ -2465,7 +2559,7 @@ meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
   - end
 __e1f1d6a9b2bd5065b8dd216b3900d1fb
 
-meta::section('introduction', <<'__a9deb7a2f8f6ce1c56e7402dc75a5a56');
+meta::section('introduction', <<'__c1e95e8c0e67c2d88f30582a0e0b64fc');
 - sc Introduction | sec:introduction
   I've gotten a lot of WTF's\footnote{\url{http://www.osnews.com/story/19266/WTFs_m}} about self-modifying Perl scripts. Rightfully so, too. There's no documentation (until now), the interface
   is opaque and not particularly portable, and they aren't even very human-readable when edited:
@@ -2488,10 +2582,11 @@ meta::section('introduction', <<'__a9deb7a2f8f6ce1c56e7402dc75a5a56');
   - end
 
   Despite these shortcomings, though, I think they're fairly useful (this guide is a self-modifying Perl file, in fact). At the end, you'll have a script that is functionally equivalent to the
-  {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.}
+  {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.} The full source code for
+  this guide and accompanying examples is available at \url{http://github.com/spencertipping/writing-self-modifying-perl}.
   
   Proceed only with fortitude, determination, and Perl v5.10.
-__a9deb7a2f8f6ce1c56e7402dc75a5a56
+__c1e95e8c0e67c2d88f30582a0e0b64fc
 
 meta::section('main', <<'__9e953c309b71c4bb194d97bd2e3a0888');
 - documentclass report

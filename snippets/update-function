@@ -1,0 +1,3 @@
+meta::function('update', <<'EOF');
+&{'update-from'}(@_, grep s/^parent:://o, sort keys %data);
+EOF

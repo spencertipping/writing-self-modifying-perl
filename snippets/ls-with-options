@@ -1,0 +1,4 @@
+meta::function('ls', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+join "\n", select_keys('--criteria' => join '|', @criteria, %$options);
+EOF

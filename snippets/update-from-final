@@ -1,0 +1,40 @@
+my ($options, @targets) = separate_options(@_);
+my %options = %$options;
+@targets or die 'Must specify at least one target to update from';
+my $save_state = ! ($options{'-n'} || $options{'--no-save'});
+my $no_parents =    $options{'-P'} || $options{'--no-parent'} || $options{'--no-parents'};
+my $force      =    $options{'-f'} || $options{'--force'};
+
+&{'save-state'}('before-update') if $save_state;
+for my $target (@targets) {
+  # The -a flag will become relevant once we add formatting to 'ls'
+  my $attributes = join '', qx($target ls -aiu);
+  warn "Skipping unreachable object $target" unless $attributes;
+  if ($attributes) {
+    # Remove keys that the parent used to define but doesn't anymore:
+    rm(split /\n/, retrieve("parent::$target")) if $data{"parent::$target"};
+    associate("parent::$target", $attributes) unless $no_parents;
+    eval qx($target serialize -ipmu);
+    eval qx($target serialize -ipMu);
+    warn $@ if $@;
+    reload();
+
+    if (verify()) {
+      print "Successfully updated from $_[0]. ",
+            "Run 'load-state before-update' to undo this change.\n" if $save_state;
+    } elsif ($force) {
+      warn 'The object failed verification, but the failure state has been ' .
+           'kept because --force was specified.';
+      warn 'At this point your object will not save properly, though backup ' .
+           'copies will be created.';
+      print "Run 'load-state before-update' to undo the update and return to ",
+            "a working state.\n" if $save_state;
+    } else {
+      warn 'Verification failed after the upgrade was complete.';
+      print "$0 has been reverted to its pre-upgrade state.\n" if $save_state;
+      print "If you want to upgrade and keep the failure state, then run ",
+            "'update-from $target --force'." if $save_state;
+      return &{'load-state'}('before-update') if $save_state;
+    }
+  }
+}

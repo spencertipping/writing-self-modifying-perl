@@ -1,0 +1,15 @@
+meta::internal_function('select_keys', <<'EOF');
+my %options   = @_;
+my %inherited = map {$_ => 1} split /\n/o, join "\n",
+                  retrieve(grep /^parent::/o, sort keys %data)
+                  if $options{'-u'} or $options{'-U'};
+my $criteria  = $options{'--criteria'} ||
+                $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+grep /$criteria/ && (! $options{'-u'} || ! $inherited{$_}) &&
+                    (! $options{'-U'} ||   $inherited{$_}) &&
+                    (! $options{'-i'} ||   $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-I'} || ! $transient{inherit}{namespace($_)}) &&
+                    (! $options{'-S'} || ! /^state::/o) &&
+                    (! $options{'-m'} ||   /^meta::/o) &&
+                    (! $options{'-M'} || ! /^meta::/o), sort keys %data;
+EOF
