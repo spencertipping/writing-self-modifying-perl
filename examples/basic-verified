@@ -21,7 +21,8 @@ meta::define_form 'code', sub {
   my ($name, $value) = @_;
   eval $value;
 };
-meta::bootstrap('initialization', <<'__756a9518275a0cee959c963ece805883');
+
+meta::bootstrap('initialization', <<'EOF');
 my %data;
 my %datatypes;
 
@@ -45,21 +46,33 @@ meta::define_form 'code', sub {
   my ($name, $value) = @_;
   eval $value;
 };
-__756a9518275a0cee959c963ece805883
-meta::function('cat', <<'__4f88f7de41727d2eaf1cb3ae8ca7a957');
-join "\n", @data{@_};
-__4f88f7de41727d2eaf1cb3ae8ca7a957
-meta::function('edit', <<'__6a8e1696c8ccf9b992ccfd8d7b28896b');
-my $filename = '/tmp/' . rand();
-open my $file, '>', $filename;
-print $file $data{$_[0]};
-close $file;
-system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
-open my $file, '<', $filename;
-$data{$_[0]} = join '', <$file>;
-close $file;
-__6a8e1696c8ccf9b992ccfd8d7b28896b
-meta::function('fast_hash', <<'__08c0c05b8eefa2cfba942c402c4d7fc2');
+EOF
+
+meta::function('serialize', <<'EOF');
+my @keys = sort keys %data;
+join "\n", $data{'bootstrap::initialization'},
+           map(serialize_single($_), grep !/^code::/, @keys),
+           map(serialize_single($_), grep  /^code::/, @keys),
+           "\n__END__";
+EOF
+
+meta::function('serialize_single', <<'EOF');
+my ($namespace, $name) = split /::/, $_[0], 2;
+my $marker = '__' . fast_hash($data{$_[0]});
+"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+EOF
+
+meta::function('fnv_hash', <<'EOF');
+my ($data) = @_;
+my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+my $hash                     = $fnv_offset;
+my $modulus                  = 2 ** 32;
+$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+  for unpack 'L*', $data . substr($data, -4) x 8;
+$hash;
+EOF
+
+meta::function('fast_hash', <<'EOF');
 my ($data)     = @_;
 my $piece_size = length($data) >> 3;
 my @pieces     = (substr($data, $piece_size * 8) . length($data),
@@ -69,48 +82,13 @@ push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
 $hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
 $hashes[0]  ^= $hashes[8];
 sprintf '%08x' x 4, @hashes[0 .. 3];
-__08c0c05b8eefa2cfba942c402c4d7fc2
-meta::function('fnv_hash', <<'__a272ea0e724ea77288bcc96ed517a7ee');
-my ($data) = @_;
-my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
-my $hash                     = $fnv_offset;
-my $modulus                  = 2 ** 32;
-$hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
-  for unpack 'L*', $data . substr($data, -4) x 8;
-$hash;
-__a272ea0e724ea77288bcc96ed517a7ee
-meta::function('save', <<'__ea8af1278892a3f82cc7f2386ff27edb');
-if (verify()) {
-  open my $file, '>', $0;
-  print $file serialize();
-  close $file;
-} else {
-  warn 'Verification failed';
-}
-__ea8af1278892a3f82cc7f2386ff27edb
-meta::function('sayhi', <<'__239562acdbcf288d36bd5d5ee21c85d3');
-print "hi\n";
+EOF
 
-__239562acdbcf288d36bd5d5ee21c85d3
-meta::function('serialize', <<'__789793e37da5118f65f12f000bd9a7ed');
-my @keys = sort keys %data;
-join "\n", $data{'bootstrap::initialization'},
-           map(serialize_single($_), grep !/^code::/, @keys),
-           map(serialize_single($_), grep  /^code::/, @keys),
-           "\n__END__";
-__789793e37da5118f65f12f000bd9a7ed
-meta::function('serialize_single', <<'__36d8d0e8367d38361288887924de819d');
-my ($namespace, $name) = split /::/, $_[0], 2;
-my $marker = '__' . fast_hash($data{$_[0]});
-"meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
-__36d8d0e8367d38361288887924de819d
-meta::function('set', <<'__dad56b57c76ae265752decf1516f7541');
-$data{$_[0]} = join '', <STDIN>;
-__dad56b57c76ae265752decf1516f7541
-meta::function('state', <<'__1010030c5cfc061ffd5642be93e46069');
+meta::function('state', <<'EOF');
 fast_hash(serialize());
-__1010030c5cfc061ffd5642be93e46069
-meta::function('verify', <<'__ec268a707d4b9af9da3300ab9bff287b');
+EOF
+
+meta::function('verify', <<'EOF');
 my $serialized_data = serialize();
 my $state           = state();
 
@@ -123,12 +101,42 @@ chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
 my $result = $observed_state eq $state;
 unlink $temporary_filename if $result;
 $result;
-__ec268a707d4b9af9da3300ab9bff287b
-meta::code('main', <<'__0346a07e5073367a609863d9d4990dad');
+EOF
+
+meta::function('save', <<'EOF');
+if (verify()) {
+  open my $file, '>', $0;
+  print $file serialize();
+  close $file;
+} else {
+  warn 'Verification failed';
+}
+EOF
+
+meta::function('cat', <<'EOF');
+join "\n", @data{@_};
+EOF
+
+meta::function('set', <<'EOF');
+$data{$_[0]} = join '', <STDIN>;
+EOF
+
+meta::function('edit', <<'EOF');
+my $filename = '/tmp/' . rand();
+open my $file, '>', $filename;
+print $file $data{$_[0]};
+close $file;
+system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+open my $file, '<', $filename;
+$data{$_[0]} = join '', <$file>;
+close $file;
+EOF
+
+meta::code('main', <<'EOF');
 my $initial_state = state();
 my $command = shift @ARGV;
 print &$command(@ARGV);
 save() if state() ne $initial_state;
-__0346a07e5073367a609863d9d4990dad
+EOF
 
 __END__
