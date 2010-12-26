@@ -1,0 +1,4 @@
+A guide to writing self-modifying Perl files. Perhaps more usefully, this guide
+explains how the ones in github.com/spencertipping/perl-objects work.
+
+MIT licensed as usual.
