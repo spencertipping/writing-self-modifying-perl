@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.lXAl/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.xCIv/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2091,7 +2091,7 @@ meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
   This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it. Proceed only with fortitude, determination, and Perl v5.10.
 __5bfc9fc5db0cf1868bf00937453017f1
 
-meta::section('main', <<'__baf13d43b19119279f79fc0ecb47f7e8');
+meta::section('main', <<'__957ae4cd639aceb441adf9e001f9bfb2');
 - documentclass report
 - include resource::header
 
@@ -2108,8 +2108,9 @@ meta::section('main', <<'__baf13d43b19119279f79fc0ecb47f7e8');
   - include section::namespaces
   - include section::serialization
   - include section::adding-a-repl
+  - include section::some-improvements
 - end
-__baf13d43b19119279f79fc0ecb47f7e8
+__957ae4cd639aceb441adf9e001f9bfb2
 
 meta::section('namespaces', <<'__4e59dbaf0f5e9c27747a3db6a25d90a5');
 - sc Namespaces | sec:namespaces
@@ -2840,6 +2841,136 @@ meta::section('serialization', <<'__d17fb2aed8b366bf89bfcc265d1c4a2c');
       __END__
     - end
 __d17fb2aed8b366bf89bfcc265d1c4a2c
+
+meta::section('some-improvements', <<'__5b056739c91d0bf4e4df56c0a8456bb8');
+- sc Some improvements | sec:some-improvements
+  Let's step back for a minute and improve things a bit in preparation for some real awesomeness. There are few places that could use improvement. First, there isn't a way to get a list of
+  defined attributes on an object without opening it by hand. Second, the interface exposes too many functions to the user; in particular, things like {\tt complete} aren't useful from the
+  command line. Finally, every data type we define gets put into {\tt bootstrap::initialization}, which causes $O(n)$ redundancy in the size of the data type constructors.
+
+  - s1 Useful functions | sec:some-improvements-useful-functions
+    The most important thing to add is {\tt ls}, which gives you a listing of attributes:\footnote{{\tt object} contains a much more sophisticated version of {\tt ls}. It parses options and
+    applies filters to the listing, much like the UNIX {\tt ls} command. I'll go over how to implement this stuff in a later chapter.} Related are {\tt cp} and {\tt rm}, which do what you
+    would expect:
+
+    - verbatim << end
+      meta::function('ls', <<'EOF');
+      join "\n", sort keys %data;
+      EOF
+
+      meta::function('cp', <<'EOF');
+      $data{$_[1]} = $data{$_[0]};
+      EOF
+
+      meta::function('rm', <<'EOF');
+      delete @data{@_};
+      EOF
+    - end
+
+    Another useful function is {\tt create}, which opens an editor for a new attribute:\footnote{We can already do this with {\tt edit}, but {\tt object} doesn't let you edit attributes that
+    don't exist. I'll include that behavior in these scripts before too long.}
+
+    - verbatim << end
+      meta::function('create', <<'EOF');
+      return edit($_[0]) if exists $data{$_[0]};
+      $data{$_[0]} = $_[1] || "# Attribute $_[0]";
+      edit($_[0]);
+      EOF
+    - end
+
+    Now we can create stuff from inside the shell or command-line and have a civilized text-editor interface to do it.
+
+  - s1 Making some functions internal | sec:some-improvements-making-some-functions-internal
+    It would be nice to have a distinction between functions meant for public consumption and functions used just inside the script. For example, nobody's going to call \verb|fnv_hash| from
+    the command-line; they'd have to pass it a string in {\tt @ARGV}, which isn't practical. So it's time for a new toplevel mechanism, the \verb|%externalized_functions| table:
+
+    - verbatim << end
+      # In bootstrap::initialization:
+      my %data;
+      my %externalized_functions;
+      my %datatypes;
+    - end
+
+    \verb|%externalized_functions| maps every callable function to the attribute that defines it, and only the listed functions will be usable directly from the shell or the command-line. This
+    has an additional benefit of providing much better autocompletion, since the first word in the REPL always names a function.
+
+    - verbatim << end
+      meta::define_form 'data', sub {
+        my ($name, $value) = @_;
+        $externalized_functions{$name} = "data::$name";
+        *{$name} = ...;
+      };
+
+      meta::define_form 'function', sub {
+        my ($name, $value) = @_;
+        $externalized_functions{$name} = "function::$name";
+        *{$name} = ...;
+      };
+    - end
+
+    \noindent And here's the new data type:
+
+    - verbatim << end
+      meta::define_form 'internal_function', sub {
+        my ($name, $value) = @_;
+        *{$name} = eval "sub {\n$value\n}";
+      };
+    - end
+
+    We can now move \verb|fnv_hash|, \verb|fast_hash|, and {\tt complete} into this namespace.
+
+    We'll need to update {\tt shell} and {\tt complete} to leverage this new information:
+
+    - verbatim << end
+      # shell function:
+      use Term::ReadLine;
+      my $term = new Term::ReadLine "$0 shell";
+      $term->ornaments(0);
+      my $output = $term->OUT || \*STDOUT;
+      $term->Attribs->{attempted_completion_function} = \&complete;
+      while (defined($_ = $term->readline("$0\$ "))) {
+        my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+        my $function_name = shift @args;
+        s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+        if ($function_name) {
+          if ($externalized_functions{$function_name}) {
+            chomp(my $result = eval {&$function_name(@args)});
+            terminal::message('error', translate_backtrace($@)) if $@;
+            print $output $result, "\n" unless $@;
+          } else {
+            warn "Command not found: '$function_name' (use 'ls' to see available commands)";
+          }
+        }
+      }
+
+      # complete function:
+      my @functions  = sort keys %externalized_functions;
+      my @attributes = sort keys %data;
+      sub match {
+        my ($text, @options) = @_;
+        my @matches = sort grep /^$text/, @options;
+        if    (@matches == 0) {return undef;}
+        elsif (@matches == 1) {return $matches [0];}
+        elsif (@matches >  1) {
+          return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+        }
+      }
+      sub longest {
+        my ($s1, $s2) = @_; 
+        return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+        return ''; 
+      }
+      my ($text, $line) = @_;
+      if ($line =~ / /) {
+        # Start matching attribute names.
+        match ($text, @attributes);
+      } else {
+        # Start of line, so it's a function.
+        match ($text, @functions);
+      }
+    - end
+__5b056739c91d0bf4e4df56c0a8456bb8
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');
