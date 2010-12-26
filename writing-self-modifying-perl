@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.xCIv/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.mHay/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1471,7 +1471,7 @@ __5a7e0bd196996326e6278b6dc308371c
 
 meta::resource('header-refs', '\\newcommand{\\Ref}[2]{\\hyperref[#2]{#1 \\ref*{#2}}}');
 meta::resource('header-resource', '\\lstnewenvironment{resourcecode}{}{}');
-meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
+meta::section('a-big-quine', <<'__19d6137821019adbd068accb4a3fea0b');
 - sc A Big Quine | sec:a-big-quine
   At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
 
@@ -1485,7 +1485,7 @@ meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
   - s1 A basic quine | sec:a-basic-quine
     Some languages make quine-writing easier than others. Perl actually makes it very simple. Here's one:
 
-    - perl examples/basic-quine << end
+    - perl examples/quine << end
       my $code = <<'EOF';
       print 'my $code = <<\'EOF\';', "\n", $code, "EOF\n"; print $code;
       EOF
@@ -1507,7 +1507,7 @@ meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
     We don't want to write everything in our quine twice. Rather, we want to store most stuff just once and have a quine that scales well. The easiest way to do this is to use a hash to store
     the state, and serialize each key of the hash in the self-printing code. So instead of creating \verb|$code|, we'll create \verb|%data|:
 
-    - perl examples/data-quine << end
+    - perl examples/quine-with-data << end
       my %data;
       $data{code} = <<'EOF';
       print 'my %data;', "\n";
@@ -1521,7 +1521,7 @@ meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
 
     \noindent This is a good start. Here's how to add attributes without duplication:
 
-    - perl examples/data-quine-with-field << end
+    - perl examples/quine-with-data-and-foo << end
       my %data;
       $data{foo} = <<'EOF';
       a string
@@ -1541,7 +1541,7 @@ meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
     smaller than \verb|$data{code}|. Here's the quine with that transformation:\footnote{Note that these quines might not actually print themselves identically due to hash-key ordering. This
     is fine; all of the keys are printed before we use them.}
 
-    - perl examples/data-quine-with-eval << end
+    - perl examples/quine-with-data-and-eval << end
       my %data;
       $data{foo} = <<'EOF';
       a string
@@ -1557,11 +1557,11 @@ meta::section('a-big-quine', <<'__40f5e8fc565103815db1785839f1404c');
       eval $data{code};
     - end
 
-    \noindent The advantage to this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
+    \noindent The advantage of this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
     understand what's going on here, since this idea is integral to everything going forward.
-__40f5e8fc565103815db1785839f1404c
+__19d6137821019adbd068accb4a3fea0b
 
-meta::section('adding-a-repl', <<'__65e416f7ff5a5d8469f708ebf220c4e9');
+meta::section('adding-a-repl', <<'__9e6b6508b59b6e5c3b0355635d60c292');
 - sc Adding a REPL | sec:adding-a-repl
   There are some ergonomic problems with the script as it stands. First, it should have a shebang line so that we don't have to use {\tt perl} explicitly. But more importantly, it should
   provide a REPL so that we don't have to keep calling it by name.
@@ -1701,7 +1701,7 @@ meta::section('adding-a-repl', <<'__65e416f7ff5a5d8469f708ebf220c4e9');
     Merging the shell and executable behavior in with the script from the last chapter, we now have:\footnote{You might notice that I'm still using {\tt EOF} as the marker in these scripts. As
     soon as the script is rewritten it will replace the {\tt EOF}s with hashes; in general, you can use any valid delimiter the first time around and the script will take it from there.}
 
-    - perl examples/shell-final << end
+    - perl examples/shell << end
       #!/usr/bin/perl
       my %data;
       my %datatypes;
@@ -1910,15 +1910,15 @@ meta::section('adding-a-repl', <<'__65e416f7ff5a5d8469f708ebf220c4e9');
 
       __END__
     - end
-__65e416f7ff5a5d8469f708ebf220c4e9
+__9e6b6508b59b6e5c3b0355635d60c292
 
-meta::section('building-the-shell', <<'__3701a04e1357970a5dc3e11ad201f4b7');
-- sc Building the Shell | sec:building-the-shell
-  Now that we've got attribute storage working, let's build a shell so that we don't have to edit these files by hand anymore. There are a couple of things that need to happen. First, we need
-  to get these scripts to overwrite themselves instead of printing to standard output. Second, we need a way to get and set entries in \verb|%data|. Starting with the quine from the last
-  section, here's one way to go about it:
+meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
+- sc Building the interface | sec:building-the-interface
+  Now that we've got attribute storage working, let's build a command-line interface so that we don't have to edit these files by hand anymore. There are a couple of things that need to
+  happen. First, we need to get these scripts to overwrite themselves instead of printing to standard output. Second, we need a way to get and set entries in \verb|%data|. Starting with the
+  quine from the last section, here's one way to go about it:
 
-  - perl examples/basic-shell << end
+  - perl examples/cli-basic << end
     my %data;
     $data{cat} = <<'EOF';
     sub cat {
@@ -1955,14 +1955,14 @@ meta::section('building-the-shell', <<'__3701a04e1357970a5dc3e11ad201f4b7');
   \noindent Now we can modify its state:
 
   - verbatim << end
-    $ perl examples/basic-shell cat cat
+    $ perl examples/cli-basic cat cat
     sub cat {
       print join "\n", @data{@_};
     }
-    $ perl examples/basic-shell set foo
+    $ perl examples/cli-basic set foo
     bar
     ^D
-    $ perl examples/basic-shell cat foo
+    $ perl examples/cli-basic cat foo
     bar
     $
   - end
@@ -1974,7 +1974,7 @@ meta::section('building-the-shell', <<'__3701a04e1357970a5dc3e11ad201f4b7');
     The first thing that would help this script be more useful is a function that let you edit things with a real text editor. Fortunately this isn't difficult:
 
     - verbatim << end
-      $ cp examples/basic-shell temp
+      $ cp examples/cli-basic temp
       $ perl temp set edit
       sub edit {
         my $filename = '/tmp/' . rand();
@@ -2005,14 +2005,14 @@ meta::section('building-the-shell', <<'__3701a04e1357970a5dc3e11ad201f4b7');
     Now you can invoke a text editor on any defined attribute:\footnote{Don't modify {\tt bootstrap} or break the print code though! This will possibly nuke your object.}
 
     - verbatim << end
-      $ perl examples/editor-shell edit cat
+      $ perl examples/cli-editor edit cat
       # hack away
       $
     - end
 
     Here's the object at this point:
 
-    - perl examples/editor-shell << end
+    - perl examples/cli-editor << end
       my %data;
       $data{cat} = <<'EOF';
       sub cat {
@@ -2060,7 +2060,12 @@ meta::section('building-the-shell', <<'__3701a04e1357970a5dc3e11ad201f4b7');
       EOF
       eval $data{code};
     - end
-__3701a04e1357970a5dc3e11ad201f4b7
+__176ff10eb1aa6b839890b315b154d7ce
+
+meta::section('eval-backtraces', <<'__23d315cb25bfe3195e7a0d9cfea213fc');
+- s1 {\tt eval} backtraces | sec:eval-backtraces
+  
+__23d315cb25bfe3195e7a0d9cfea213fc
 
 meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
 - sc Introduction | sec:introduction
@@ -2091,7 +2096,7 @@ meta::section('introduction', <<'__5bfc9fc5db0cf1868bf00937453017f1');
   This guide probably isn't for the faint of heart, but if you're not afraid of {\tt eval} then you might like it. Proceed only with fortitude, determination, and Perl v5.10.
 __5bfc9fc5db0cf1868bf00937453017f1
 
-meta::section('main', <<'__957ae4cd639aceb441adf9e001f9bfb2');
+meta::section('main', <<'__831ae8b91d9a6d6726e4cac52e45d1bd');
 - documentclass report
 - include resource::header
 
@@ -2103,16 +2108,21 @@ meta::section('main', <<'__957ae4cd639aceb441adf9e001f9bfb2');
   - tableofcontents
 
   - include section::introduction
+
+  - sp The Basics
   - include section::a-big-quine
-  - include section::building-the-shell
+  - include section::building-the-interface
   - include section::namespaces
   - include section::serialization
   - include section::adding-a-repl
   - include section::some-improvements
-- end
-__957ae4cd639aceb441adf9e001f9bfb2
 
-meta::section('namespaces', <<'__4e59dbaf0f5e9c27747a3db6a25d90a5');
+  - sp The Fun Stuff
+  - include section::eval-backtraces
+- end
+__831ae8b91d9a6d6726e4cac52e45d1bd
+
+meta::section('namespaces', <<'__bfa4f788a9b156a8585a2d2d74f18623');
 - sc Namespaces | sec:namespaces
   It's a bummer to have to add a new {\tt eval} line for every function we want to define. We could merge all of the functions into a single hash key, but that's too easy.\footnote{Aside from
   being a lame cop-out, it also limits extensibility, as I'll explain later.} More appropriate is to assign a type to each hash key. This can be encoded in the name. For example, we might
@@ -2250,7 +2260,7 @@ meta::section('namespaces', <<'__4e59dbaf0f5e9c27747a3db6a25d90a5');
   - s1 Putting it all together | sec:namespaces-putting-it-all-together
     At this point we're all set to write another script. The overall structure is still basically the same even though each piece has changed a little:
 
-    - perl examples/basic-meta << end
+    - perl examples/namespace-basic << end
       my %data;
       my %datatypes;
 
@@ -2381,7 +2391,7 @@ meta::section('namespaces', <<'__4e59dbaf0f5e9c27747a3db6a25d90a5');
 
     Here's the final product, after adding the {\tt set} and {\tt edit} functions from before:
 
-    - perl examples/basic-meta-with-functions << end
+    - perl examples/namespace-full << end
       my %data;
       my %datatypes;
 
@@ -2475,9 +2485,9 @@ meta::section('namespaces', <<'__4e59dbaf0f5e9c27747a3db6a25d90a5');
 
       __END__
     - end
-__4e59dbaf0f5e9c27747a3db6a25d90a5
+__bfa4f788a9b156a8585a2d2d74f18623
 
-meta::section('serialization', <<'__d17fb2aed8b366bf89bfcc265d1c4a2c');
+meta::section('serialization', <<'__8e4c94639b3eaee761268dc55e169ba6');
 - sc Serialization | sec:serialization
   Earlier I alluded to a glaring problem with these scripts as they stand. The issue is the {\tt EOF} marker we've been using. Here's what happens if we put a line containing {\tt EOF} into an
   attribute:
@@ -2696,7 +2706,7 @@ meta::section('serialization', <<'__d17fb2aed8b366bf89bfcc265d1c4a2c');
   - s1 Final result | sec:serialization-final-result
     At this point we have an extensible and reasonably robust script. Here's what we've got so far:
 
-    - perl examples/basic-verified << end
+    - perl examples/verified << end
       my %data;
       my %datatypes;
 
@@ -2840,9 +2850,9 @@ meta::section('serialization', <<'__d17fb2aed8b366bf89bfcc265d1c4a2c');
 
       __END__
     - end
-__d17fb2aed8b366bf89bfcc265d1c4a2c
+__8e4c94639b3eaee761268dc55e169ba6
 
-meta::section('some-improvements', <<'__5b056739c91d0bf4e4df56c0a8456bb8');
+meta::section('some-improvements', <<'__449bd2a7862d864813d5ca1729063569');
 - sc Some improvements | sec:some-improvements
   Let's step back for a minute and improve things a bit in preparation for some real awesomeness. There are few places that could use improvement. First, there isn't a way to get a list of
   defined attributes on an object without opening it by hand. Second, the interface exposes too many functions to the user; in particular, things like {\tt complete} aren't useful from the
@@ -2936,7 +2946,7 @@ meta::section('some-improvements', <<'__5b056739c91d0bf4e4df56c0a8456bb8');
         if ($function_name) {
           if ($externalized_functions{$function_name}) {
             chomp(my $result = eval {&$function_name(@args)});
-            terminal::message('error', translate_backtrace($@)) if $@;
+            warn $@ if $@;
             print $output $result, "\n" unless $@;
           } else {
             warn "Command not found: '$function_name' (use 'ls' to see available commands)";
@@ -2970,7 +2980,413 @@ meta::section('some-improvements', <<'__5b056739c91d0bf4e4df56c0a8456bb8');
         match ($text, @functions);
       }
     - end
-__5b056739c91d0bf4e4df56c0a8456bb8
+
+  - Separate attributes for data types | sec:some-improvements-separate-attributes-for-data-types
+    It's cumbersome to have all of the data types go in {\tt bootstrap::initialization}. Better is to break the code into separate attributes. To do this we'll need to restructure the scripts
+    a little bit.
+
+    Up until now the ``stuff first, code second'' approach has worked out all right. But now we want to evaluate stuff at the beginning and at the end, and if this keeps up it could get out of
+    hand. Better is to have {\tt serialize} generate a call into some function that will be defined, and do away with {\tt code::} altogether. We can use a new namespace {\tt meta::} for stuff
+    that needs to be evaluated at the beginning. So basically, instead of this:
+
+    - verbatim << end
+      bootstrap
+        types
+      functions
+      code
+    - end
+
+    \noindent we'd have this:
+
+    - verbatim << end
+      bootstrap
+      meta definitions
+      functions
+      call to internal::main()
+    - end
+
+    Here's what the new {\tt serialize} looks like:
+
+    - verbatim << end
+      my @keys = sort keys %data;
+      join "\n", $data{'bootstrap::initialization'},
+                 map(serialize_single($_),
+                   grep( /^meta::/, @keys),
+                   grep(!/^meta::/, @keys)),
+                 "internal::main();",
+                 "__END__";
+    - end
+
+    And here's the definition for {\tt meta::} (it's identical to the one we used to have for {\tt code::}). This is the only \verb|define_form| invocation in {\tt bootstrap::initialization};
+    the others now reside in their own attributes.
+
+    - verbatim << end
+      meta::define_form 'meta', sub {
+        my ($name, $value) = @_;
+        eval $value;
+      };
+    - end
+
+    Here are the new type definitions:
+
+    - verbatim << end
+      meta::meta('type::data', <<'EOF');
+      meta::define_form 'data', sub {...};
+      EOF
+      meta::meta('type::function', <<'EOF');
+      meta::define_form 'function', sub {...};
+      EOF
+      meta::meta('type::bootstrap', <<'EOF');
+      meta::define_form 'bootstrap', sub {};
+      EOF
+      ...
+    - end
+
+    - s2 Factoring externalization | sec:some-improvements-data-types-factoring-externalization
+      While we're cleaning up meta-stuff, it's worth thinking about factoring out externalization. There isn't a particularly good reason to keep manually assigning to
+      \verb|%externalized_functions|; better is to abstract this detail into a function. To do this, we'll want a meta-library:
+
+      - verbatim << end
+        meta::meta('externalize', <<'EOF');
+        sub meta::externalize {
+          my ($name, $attribute, $implementation) = @_;
+          $externalized_functions{$name} = $attribute;
+          *{$name} = $implementation;
+        }
+        EOF
+      - end
+
+      This meta-definition is available to the others because it sorts first.\footnote{Which is a horrible way to manage dependencies, but it's worked so far.} Now instead of manually
+      externalizing stuff, data types like {\tt function::} and {\tt data::} can just use {\tt meta::externalize}:
+
+      - verbatim << end
+        meta::meta('type::function', <<'EOF');
+        meta::define_form 'function', sub {
+          my ($name, $value) = @_;
+          meta::externalize $name, "function::$name", eval "sub {\n$value\n}";
+        };
+        EOF
+      - end
+
+  - s1 Abstracting {\tt \%data} | sec:some-improvements-abstracting-data
+    Another issue worth fixing is that you can assign into \verb|%data| arbitrarily, particularly in ways that end up breaking deserialization. For instance, nothing is stopping you from
+    creating a key called {\tt foo::bar} even though there isn't a namespace called {\tt foo::}. This problem can be solved at the interface level (i.e.~inside {\tt edit}, {\tt set}, and
+    such), but it's probably more useful to go a step further and abstract all access to \verb|%data|.
+
+    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}.\footnote{I can't remember why I thought {\tt
+    retrieve} was necessary when I wrote {\tt object}. As far as I know it still isn't; it's just there for symmetry I think.} These two functions also benefit from a couple more to separate
+    out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these functions are taken directly
+    from {\tt object}.}
+
+    - verbatim << end
+      meta::internal_function('namespace', <<'EOF');
+      my ($name) = @_;
+      $name =~ s/::.*$//;
+      $name;
+      EOF
+
+      meta::internal_function('attribute', <<'EOF');
+      my ($name) = @_;
+      $name =~ s/^[^:]*:://;
+      $name;
+      EOF
+
+      meta::internal_function('retrieve', <<'EOF');
+      my @results = map defined $data{$_} ? $data{$_} : file::read($_), @_;
+      wantarray ? @results : $results[0];
+      EOF
+
+      meta::internal_function('associate', <<'EOF');
+      my ($name, $value, %options) = @_;
+      my $namespace = namespace($name);
+      die "Namespace $namespace does not exist" unless $datatypes{$namespace};
+      $data{$name} = $value;
+      execute($name) if $options{'execute'};
+      EOF
+    - end
+
+    - s2 Dynamic execution | sec:some-improvements-abstracting-data-dynamic-execution
+      One problem with the way we've defined {\tt cp} is that you'll have to close and reopen the shell to get new functions to take effect. This is because while we're assigning into
+      \verb|%data|, we're not calling the handler associated with the namespace. The simplest way to fix this is to dynamically invoke that handler:
+
+      - verbatim << end
+        meta::internal_function('execute', <<'EOF');
+        my ($name, %options) = @_;
+        my $namespace = namespace($name);
+        eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
+        warn $@ if $@ && $options{'carp'};
+        EOF
+      - end
+
+      {\tt associate} is already hooked up to use this function; all you have to do is pass an extra option:
+
+      - verbatim << end
+        associate('function::foo', '...', execute => 1);
+      - end
+
+  - s1 Final result | sec:some-improvements-final-result
+    Integrating all of these improvements into the previous chapter's script yields this monumental piece of work:
+
+    - perl examples/some-improvements << end
+      #!/usr/bin/perl
+      my %data;
+      my %externalized_functions;
+      my %datatypes;
+
+      sub meta::define_form {
+        my ($namespace, $delegate) = @_;
+        $datatypes{$namespace} = $delegate;
+        *{"meta::${namespace}::implementation"} = $delegate;
+        *{"meta::$namespace"} = sub {
+          my ($name, $value) = @_;
+          chomp $value;
+          $data{"${namespace}::$name"} = $value;
+          $delegate->($name, $value);
+        };
+      }
+
+      meta::define_form 'meta', sub {
+        my ($name, $value) = @_;
+        eval $value;
+      };
+
+      meta::meta('type::bootstrap', <<'EOF');
+      meta::define_form 'bootstrap', sub {};
+      EOF
+
+      meta::meta('type::function', <<'EOF');
+      meta::define_form 'function', sub {
+        my ($name, $body) = @_;
+        *{$name} = eval "sub {\n$body\n}";
+      };
+      EOF
+
+      meta::meta('type::internal_function', <<'EOF');
+      meta::define_form 'internal_function', sub {
+        my ($name, $value) = @_;
+        *{$name} = eval "sub {\n$value\n}";
+      };
+      EOF
+
+      meta::meta('type::data', <<'EOF');
+      meta::define_form 'data', sub {
+        # Define a basic editing interface:
+        my ($name, $value) = @_;
+        *{$name} = sub {
+          my ($command, $value) = @_;
+          return $data{"data::$name"} unless @_;
+          $data{"data::$name"} = $value if $command eq '=';
+        };
+      };
+      EOF
+
+      meta::bootstrap('initialization', <<'EOF');
+      #!/usr/bin/perl
+      my %data;
+      my %externalized_functions;
+      my %datatypes;
+
+      sub meta::define_form {
+        my ($namespace, $delegate) = @_;
+        $datatypes{$namespace} = $delegate;
+        *{"meta::${namespace}::implementation"} = $delegate;
+        *{"meta::$namespace"} = sub {
+          my ($name, $value) = @_;
+          chomp $value;
+          $data{"${namespace}::$name"} = $value;
+          $delegate->($name, $value);
+        };
+      }
+
+      meta::define_form 'meta', sub {
+        my ($name, $value) = @_;
+        eval $value;
+      };
+      EOF
+
+      meta::data('default-action', <<'EOF');
+      shell
+      EOF
+
+      meta::internal_function('namespace', <<'EOF');
+      my ($name) = @_;
+      $name =~ s/::.*$//;
+      $name;
+      EOF
+
+      meta::internal_function('attribute', <<'EOF');
+      my ($name) = @_;
+      $name =~ s/^[^:]*:://;
+      $name;
+      EOF
+
+      meta::internal_function('retrieve', <<'EOF');
+      my @results = map defined $data{$_} ? $data{$_} : file::read($_), @_;
+      wantarray ? @results : $results[0];
+      EOF
+
+      meta::internal_function('associate', <<'EOF');
+      my ($name, $value, %options) = @_;
+      my $namespace = namespace($name);
+      die "Namespace $namespace does not exist" unless $datatypes{$namespace};
+      $data{$name} = $value;
+      execute($name) if $options{'execute'};
+      EOF
+
+      meta::internal_function('execute', <<'EOF');
+      my ($name, %options) = @_;
+      my $namespace = namespace($name);
+      eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
+      warn $@ if $@ && $options{'carp'};
+      EOF
+
+      meta::function('serialize', <<'EOF');
+      my @keys = sort keys %data;
+      join "\n", $data{'bootstrap::initialization'},
+                 map(serialize_single($_),
+                   grep( /^meta::/, @keys),
+                   grep(!/^meta::/, @keys)),
+                 "internal::main();",
+                 "__END__";
+      EOF
+
+      meta::function('serialize_single', <<'EOF');
+      my ($namespace, $name) = split /::/, $_[0], 2;
+      my $marker = '__' . fast_hash($data{$_[0]});
+      "meta::$namespace('$name', <<'$marker');\n$data{$_[0]}\n$marker";
+      EOF
+
+      meta::function('fnv_hash', <<'EOF');
+      my ($data) = @_;
+      my ($fnv_prime, $fnv_offset) = (16777619, 2166136261);
+      my $hash                     = $fnv_offset;
+      my $modulus                  = 2 ** 32;
+      $hash = ($hash ^ ($_ & 0xffff) ^ ($_ >> 16)) * $fnv_prime % $modulus
+        for unpack 'L*', $data . substr($data, -4) x 8;
+      $hash;
+      EOF
+
+      meta::function('fast_hash', <<'EOF');
+      my ($data)     = @_;
+      my $piece_size = length($data) >> 3;
+      my @pieces     = (substr($data, $piece_size * 8) . length($data),
+                        map(substr($data, $piece_size * $_, $piece_size), 0 .. 7));
+      my @hashes     = (fnv_hash($pieces[0]));
+      push @hashes, fnv_hash($pieces[$_ + 1] . $hashes[$_]) for 0 .. 7;
+      $hashes[$_] ^= $hashes[$_ + 4] >> 16 | ($hashes[$_ + 4] & 0xffff) << 16 for 0 .. 3;
+      $hashes[0]  ^= $hashes[8];
+      sprintf '%08x' x 4, @hashes[0 .. 3];
+      EOF
+
+      meta::function('state', <<'EOF');
+      fast_hash(serialize());
+      EOF
+
+      meta::function('verify', <<'EOF');
+      my $serialized_data = serialize();
+      my $state           = state();
+
+      my $temporary_filename = "$0.$state";
+      open my $file, '>', $temporary_filename;
+      print $file $serialized_data;
+      close $file;
+      chmod 0700, $temporary_filename;
+      chomp(my $observed_state = join '', qx|perl '$temporary_filename' state|);
+      my $result = $observed_state eq $state;
+      unlink $temporary_filename if $result;
+      $result;
+      EOF
+
+      meta::function('save', <<'EOF');
+      if (verify()) {
+        open my $file, '>', $0;
+        print $file serialize();
+        close $file;
+        chmod 0744, $0;
+      } else {
+        warn 'Verification failed';
+      }
+      EOF
+
+      meta::function('cat', <<'EOF');
+      join "\n", @data{@_};
+      EOF
+
+      meta::function('set', <<'EOF');
+      $data{$_[0]} = join '', <STDIN>;
+      EOF
+
+      meta::function('complete', <<'EOF');
+      my @functions  = sort keys %externalized_functions;
+      my @attributes = sort keys %data;
+      sub match {
+        my ($text, @options) = @_;
+        my @matches = sort grep /^$text/, @options;
+        if    (@matches == 0) {return undef;}
+        elsif (@matches == 1) {return $matches [0];}
+        elsif (@matches >  1) {
+          return ((longest ($matches [0], $matches [@matches - 1])), @matches);
+        }
+      }
+      sub longest {
+        my ($s1, $s2) = @_; 
+        return substr ($s1, 0, length $1) if ($s1 ^ $s2) =~ /^(\0*)/;
+        return ''; 
+      }
+      my ($text, $line) = @_;
+      if ($line =~ / /) {
+        # Start matching attribute names.
+        match ($text, @attributes);
+      } else {
+        # Start of line, so it's a function.
+        match ($text, @functions);
+      }
+      EOF
+
+      meta::internal_function('shell', <<'EOF');
+      use Term::ReadLine;
+      my $term = new Term::ReadLine "$0 shell";
+      $term->ornaments(0);
+      my $output = $term->OUT || \*STDOUT;
+      $term->Attribs->{attempted_completion_function} = \&complete;
+      while (defined($_ = $term->readline("$0\$ "))) {
+        my @args = grep length, split /\s+|("[^"\\]*(?:\\.)?")/o;
+        my $function_name = shift @args;
+        s/^"(.*)"$/\1/o, s/\\\\"/"/go for @args;
+
+        if ($function_name) {
+          if ($externalized_functions{$function_name}) {
+            chomp(my $result = eval {&$function_name(@args)});
+            warn $@ if $@;
+            print $output $result, "\n" unless $@;
+          } else {
+            warn "Command not found: '$function_name' (use 'ls' to see available commands)";
+          }
+        }
+      }
+      EOF
+
+      meta::function('edit', <<'EOF');
+      my $filename = '/tmp/' . rand();
+      open my $file, '>', $filename;
+      print $file $data{$_[0]};
+      close $file;
+      system($ENV{EDITOR} || $ENV{VISUAL} || '/usr/bin/nano', $filename);
+      open my $file, '<', $filename;
+      $data{$_[0]} = join '', <$file>;
+      close $file;
+      EOF
+
+      meta::internal_function('internal::main', <<'EOF');
+      my $initial_state = state();
+      my $command = shift @ARGV || $data{'data::default-action'};
+      print &$command(@ARGV);
+      save() if state() ne $initial_state;
+      EOF
+
+      __END__
+    - end
+__449bd2a7862d864813d5ca1729063569
 
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__7be1d470a07a06c58e971bc7fc24c048');
