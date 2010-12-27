@@ -379,7 +379,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.tjKF/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.pFXO/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -2158,7 +2158,7 @@ meta::section('building-the-interface', <<'__176ff10eb1aa6b839890b315b154d7ce');
     - end
 __176ff10eb1aa6b839890b315b154d7ce
 
-meta::section('cloning-and-inheritance', <<'__74035017b36d8f841dbf19cbc34f58ca');
+meta::section('cloning-and-inheritance', <<'__c2f564bfb36d8f841dbf19cbc34f58ca');
 - sc Cloning and inheritance | sec:cloning-and-inheritance
   This is probably the single coolest thing about self-modifying Perl programs. You've probably had this looming feeling that propagating updated versions of functions between scripts was
   going to be a complete nightmare. For a long time this was indeed the case; I had shell scripts that copied attributes out of one script and into another. Luckily I got tired of doing things
@@ -2496,7 +2496,7 @@ meta::section('cloning-and-inheritance', <<'__74035017b36d8f841dbf19cbc34f58ca')
       open my $file, '>', $_[0];
       print $file serialize();
       close $file;
-      chmod 0700, $file;
+      chmod 0700, $_[0];
       EOF
     - end
 
@@ -2519,7 +2519,7 @@ meta::section('cloning-and-inheritance', <<'__74035017b36d8f841dbf19cbc34f58ca')
       parent::/path/to/object
       $
     - end
-__74035017b36d8f841dbf19cbc34f58ca
+__c2f564bfb36d8f841dbf19cbc34f58ca
 
 meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
 - sc {\tt eval} backtraces | sec:eval-backtraces

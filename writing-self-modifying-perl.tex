@@ -2369,7 +2369,7 @@ meta::function('clone', <<'EOF');
 open my $file, '>', $_[0];
 print $file serialize();
 close $file;
-chmod 0700, $file;
+chmod 0700, $_[0];
 EOF \end{perlcode}
 
     Now you can clone an object as it exists at any given moment. More interesting, though, is the related {\tt child} function, which creates an object already setup for inheritance:

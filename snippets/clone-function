@@ -2,5 +2,5 @@ meta::function('clone', <<'EOF');
 open my $file, '>', $_[0];
 print $file serialize();
 close $file;
-chmod 0700, $file;
+chmod 0700, $_[0];
 EOF
