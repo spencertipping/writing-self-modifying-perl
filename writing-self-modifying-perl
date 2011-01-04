@@ -741,6 +741,11 @@ my $delimiter = '__' . fast_hash($contents);
 return "$meta_function_name('$invocation_name', <<'$delimiter');\n$contents\n$delimiter\n";
 __48005281edde632b0df2e346c094b7bd
 
+meta::function('sh', <<'__bd4fa255ba0d6c3f42ad81089ed71254');
+# Run something on the shell.
+system(@_);
+__bd4fa255ba0d6c3f42ad81089ed71254
+
 meta::function('shell', <<'__e9e0709e6ee1dd09521c683322be79e6');
 use Term::ReadLine;
 
@@ -968,6 +973,14 @@ eval {&{"meta::$namespace"}(attribute($name), retrieve($name))};
 warn $@ if $@ && $options{'carp'};
 __4b4efc33bc6767a7aade7f427eedf83f
 
+meta::internal_function('exported', <<'__27414e8f2ceeaef3555b9726e690eb0f');
+# Allocates a temporary file containing the concatenation of attributes you specify,
+# and returns the filename. The filename will be safe for deletion anytime.
+my $filename = temporary_name();
+file::write($filename, cat(@_));
+$filename;
+__27414e8f2ceeaef3555b9726e690eb0f
+
 meta::internal_function('fast_hash', <<'__ac70f469e697725cfb87629833434ab1');
 my ($data)     = @_;
 my $piece_size = length($data) >> 3;
@@ -1174,6 +1187,17 @@ $trace =~ s/\(eval (\d+)\)/$locations{$1 - 1}/g;
 $trace;
 __06fad3d85833a6484e426401b95e0206
 
+meta::internal_function('with_exported', <<'__fc4f32c46d95c6deed0414364d1c7410');
+# Like exported(), but removes the file after running some function.
+# Usage is with_exported(@files, sub {...});
+my $f      = pop @_;
+my $name   = exported(@_);
+my $result = eval {&$f($name)};
+terminal::warning("$@ when running with_exported()") if $@;
+unlink $name;
+$result;
+__fc4f32c46d95c6deed0414364d1c7410
+
 meta::library('terminal', <<'__6999988eaf441c9b1282e03e1db427b5');
 # Functions for nice-looking terminal output.
 package terminal;
@@ -1237,7 +1261,7 @@ template::item[]
 vim_highlighter::cltex
 __30e30a38dc2bd8ee5b5f47ed055b367c
 
-meta::parent('/home/spencertipping/bin/object', <<'__274768cabc5dcef6880980c5158cefe2');
+meta::parent('/home/spencertipping/bin/object', <<'__d2c11649577aad680b6bad821cf826a6');
 bootstrap::initialization
 bootstrap::perldoc
 function::cat
@@ -1268,6 +1292,7 @@ function::save
 function::save-state
 function::serialize
 function::serialize_single
+function::sh
 function::shell
 function::size
 function::snapshot
@@ -1283,6 +1308,7 @@ internal_function::chmod_self
 internal_function::complete
 internal_function::debug_trace
 internal_function::execute
+internal_function::exported
 internal_function::fast_hash
 internal_function::file::read
 internal_function::file::write
@@ -1298,6 +1324,7 @@ internal_function::strip
 internal_function::table_display
 internal_function::temporary_name
 internal_function::translate_backtrace
+internal_function::with_exported
 library::terminal
 message_color::state
 message_color::states
@@ -1316,7 +1343,7 @@ meta::type::meta
 meta::type::parent
 meta::type::state
 meta::type::watch
-__274768cabc5dcef6880980c5158cefe2
+__d2c11649577aad680b6bad821cf826a6
 
 meta::parent('configuration', <<'__511208c99d8bc2caa3067db9f1824163');
 meta::type::configuration
@@ -1336,7 +1363,7 @@ meta::type::note
 parent::object
 __320d51928ec8e2e370d67d30abe059b5
 
-meta::parent('object', <<'__274768cabc5dcef6880980c5158cefe2');
+meta::parent('object', <<'__d2c11649577aad680b6bad821cf826a6');
 bootstrap::initialization
 bootstrap::perldoc
 function::cat
@@ -1367,6 +1394,7 @@ function::save
 function::save-state
 function::serialize
 function::serialize_single
+function::sh
 function::shell
 function::size
 function::snapshot
@@ -1382,6 +1410,7 @@ internal_function::chmod_self
 internal_function::complete
 internal_function::debug_trace
 internal_function::execute
+internal_function::exported
 internal_function::fast_hash
 internal_function::file::read
 internal_function::file::write
@@ -1397,6 +1426,7 @@ internal_function::strip
 internal_function::table_display
 internal_function::temporary_name
 internal_function::translate_backtrace
+internal_function::with_exported
 library::terminal
 message_color::state
 message_color::states
@@ -1415,7 +1445,7 @@ meta::type::meta
 meta::type::parent
 meta::type::state
 meta::type::watch
-__274768cabc5dcef6880980c5158cefe2
+__d2c11649577aad680b6bad821cf826a6
 
 meta::parent('preprocessor', <<'__9c447d98a6cfad0ea5444db7eb4b75de');
 function::preprocess
