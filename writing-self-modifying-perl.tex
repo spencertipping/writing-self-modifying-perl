@@ -51,7 +51,7 @@ __25976e07665878d3fae18f050160343f
   Despite these shortcomings, though, I think they're fairly useful (this guide is a self-modifying Perl file, in fact). At the end, you'll have a script that is functionally equivalent to the
   {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.} The full source code for
   this guide and accompanying examples is available at \url{http://github.com/spencertipping/writing-self-modifying-perl}.
-  
+
   Proceed only with fortitude, determination, and Perl v5.10.
 
 \part{The Basics}
@@ -137,7 +137,8 @@ EOF
 eval $data{code}; \end{perlcode}
 
     \noindent The advantage of this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
-    understand what's going on here, since this idea is integral to everything going forward.
+    understand what's going on here, since this idea is integral to everything going forward.\footnote{Alternatively, it probably also works to accept the code so far as magic and take my word
+    for it that future code snippets do what they should. But it's probably less fun without the ``aha!'' moment.}
 \chapter{Building the interface}\label{sec:building-the-interface}
   Now that we've got attribute storage working, let's build a command-line interface so that we don't have to edit these files by hand anymore. There are a couple of things that need to
   happen. First, we need to get these scripts to overwrite themselves instead of printing to standard output. Second, we need a way to get and set entries in \verb|%data|. Starting with the

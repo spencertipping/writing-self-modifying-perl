@@ -371,7 +371,7 @@ __3c6177256de0fddb721f534c3ad8c0ee
 
 meta::data('name', 'writing-self-modifying-perl');
 meta::data('output-dir', '/tmp');
-meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.pFXO/document.pdf');
+meta::data('pdf-output-file', '/tmp/writing-self-modifying-perl.7m49/document.pdf');
 meta::data('pdf-reader', '/usr/bin/evince');
 meta::data('pdftex-command', 'pdflatex -output-directory=__TEMPORARY_DIRECTORY__ __INPUT_FILE__');
 meta::data('quiet', '1');
@@ -1470,7 +1470,7 @@ __5a7e0bd196996326e6278b6dc308371c
 
 meta::resource('header-refs', '\\newcommand{\\Ref}[2]{\\hyperref[#2]{#1 \\ref*{#2}}}');
 meta::resource('header-resource', '\\lstnewenvironment{resourcecode}{}{}');
-meta::section('a-big-quine', <<'__19d6137821019adbd068accb4a3fea0b');
+meta::section('a-big-quine', <<'__21026d5444edc24feb376c6a30cb3eb7');
 - sc A Big Quine | sec:a-big-quine
   At the core of things, a self-modifying Perl script is just a big quine.\footnote{A ``quine'' being a program that prints its own source.} There are only two real differences:
 
@@ -1557,8 +1557,9 @@ meta::section('a-big-quine', <<'__19d6137821019adbd068accb4a3fea0b');
     - end
 
     \noindent The advantage of this approach is that all we'll ever have to duplicate is \verb|eval $data{code}| and \verb|my %data;|, which is fairly trivial. It's important that you
-    understand what's going on here, since this idea is integral to everything going forward.
-__19d6137821019adbd068accb4a3fea0b
+    understand what's going on here, since this idea is integral to everything going forward.\footnote{Alternatively, it probably also works to accept the code so far as magic and take my word
+    for it that future code snippets do what they should. But it's probably less fun without the ``aha!'' moment.}
+__21026d5444edc24feb376c6a30cb3eb7
 
 meta::section('adding-a-repl', <<'__8e5597413f48bb8640ee662df12a472c');
 - sc Adding a REPL | sec:adding-a-repl
@@ -2591,7 +2592,7 @@ meta::section('eval-backtraces', <<'__e1f1d6a9b2bd5065b8dd216b3900d1fb');
   - end
 __e1f1d6a9b2bd5065b8dd216b3900d1fb
 
-meta::section('introduction', <<'__c1e95e8c0e67c2d88f30582a0e0b64fc');
+meta::section('introduction', <<'__9efeff3048200656ac82feb7fd31c471');
 - sc Introduction | sec:introduction
   I've gotten a lot of WTF's\footnote{\url{http://www.osnews.com/story/19266/WTFs_m}} about self-modifying Perl scripts. Rightfully so, too. There's no documentation (until now), the interface
   is opaque and not particularly portable, and they aren't even very human-readable when edited:
@@ -2616,9 +2617,9 @@ meta::section('introduction', <<'__c1e95e8c0e67c2d88f30582a0e0b64fc');
   Despite these shortcomings, though, I think they're fairly useful (this guide is a self-modifying Perl file, in fact). At the end, you'll have a script that is functionally equivalent to the
   {\tt object} script, which I use as the prototype for all of the other ones.\footnote{See \url{http://github.com/spencertipping/perl-objects} for the full source.} The full source code for
   this guide and accompanying examples is available at \url{http://github.com/spencertipping/writing-self-modifying-perl}.
-  
+
   Proceed only with fortitude, determination, and Perl v5.10.
-__c1e95e8c0e67c2d88f30582a0e0b64fc
+__9efeff3048200656ac82feb7fd31c471
 
 meta::section('main', <<'__9e953c309b71c4bb194d97bd2e3a0888');
 - documentclass report
