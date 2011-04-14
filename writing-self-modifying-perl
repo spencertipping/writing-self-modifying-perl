@@ -366,7 +366,7 @@ run this script with the 'usage' argument.
 =cut
 
 __c63395cbc6f7160b603befbb2d9b6700
-meta::cache('parent-identification', <<'__6176ebe336bef8924a37bbd391f088b4');
+meta::cache('parent-identification', <<'__310005c40824ad8c39fde52033cc9569');
 ./sdoc /home/spencertipping/bin/configuration
 /home/spencertipping/bin/configuration aa772900bb5b925cb84346bd72a4249d
 /home/spencertipping/bin/literate-project cf9c87bde4f2e9aed1ea468d85b2ddad
@@ -379,16 +379,13 @@ a9e5975593ed5d90d943ad98405c71e5 object
 aa772900bb5b925cb84346bd72a4249d repository
 cf9c87bde4f2e9aed1ea468d85b2ddad configuration
 configuration aa772900bb5b925cb84346bd72a4249d
-
 development vim-highlighters
 notes preprocessor
 object 99aeabc9ec7fe80b1b39f5e53dc7e49e
-
 preprocessor notes
 repository 05bc3036c343fdb8aec5b0be12a9b19e
-
 vim-highlighters development
-__6176ebe336bef8924a37bbd391f088b4
+__310005c40824ad8c39fde52033cc9569
 meta::data('author', 'Spencer Tipping');
 meta::data('default-action', 'shell');
 meta::data('license', <<'__3c6177256de0fddb721f534c3ad8c0ee');
