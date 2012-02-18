@@ -1,0 +1,4 @@
+meta::internal_function('retrieve', <<'EOF');
+my @results = map defined $data{$_} ? $data{$_} : retrieve_with_hooks($_), @_;
+wantarray ? @results : $results[0];
+EOF

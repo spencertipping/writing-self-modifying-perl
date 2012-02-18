@@ -1,0 +1,7 @@
+meta::meta('type::retriever', <<'EOF');
+meta::configure 'retriever', extension => '.pl', inherit => 1;
+meta::define_form 'retriever', sub {
+  my ($name, $value) = @_;
+  $transient{retrievers}{$name} = meta::eval_in("sub {\n$value\n}", "retriever::$name");
+};
+EOF

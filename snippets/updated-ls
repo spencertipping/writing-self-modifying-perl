@@ -1,0 +1,33 @@
+meta::function('ls', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+my ($external, $shadows, $sizes, $flags, $long, $hashes, $parent_hashes) =
+    @$options{qw(-e -s -z -f -l -h -p)};
+
+$sizes = $flags = $hashes = $parent_hashes = 1 if $long;
+
+return table_display([grep ! exists $data{$externalized_functions{$_}},
+    sort keys %externalized_functions]) if $shadows;
+
+my $criteria    = join('|', @criteria);
+my @definitions = select_keys('--criteria' => $criteria,
+                              '--path' => $transient{path}, %$options);
+
+my %inverses  = map {$externalized_functions{$_} => $_} keys %externalized_functions;
+my @externals = map $inverses{$_}, grep length, @definitions;
+my @internals = grep length $inverses{$_}, @definitions;
+my @sizes     = map sprintf('%6d %6d', length(serialize_single($_)), length(retrieve($_))),
+    @{$external ? \@internals : \@definitions} if $sizes;
+
+my @flags     = map {my $k = $_; join '', map(is($k, "-$_") ? $_ : '-', qw(d i m u))}
+    @definitions if $flags;
+
+my @hashes    = map fast_hash(retrieve($_)), @definitions if $hashes;
+
+my %inherited     = parent_attributes(grep /^parent::/o, keys %data) if $parent_hashes;
+my @parent_hashes = map $inherited{$_} || '-', @definitions if $parent_hashes;
+
+join "\n", map strip($_), split /\n/,
+    table_display($external ? [grep length, @externals] : [@definitions],
+                  $sizes ? ([@sizes]) : (), $flags ? ([@flags]) : (),
+                  $hashes ? ([@hashes]) : (), $parent_hashes ? ([@parent_hashes]) : ());
+EOF

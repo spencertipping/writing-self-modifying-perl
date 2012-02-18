@@ -18,6 +18,8 @@
 \lstnewenvironment{javascriptcode}{}{}
 \lstnewenvironment{htmlcode}      {\lstset{language=html}}{}
 \lstnewenvironment{perlcode}      {\lstset{language=perl}}{}
+\lstnewenvironment{rubycode}      {\lstset{language=ruby}}{}
+
 \lstnewenvironment{resourcecode}{}{}
 
 \title{Writing Self-Modifying Perl}
@@ -1549,10 +1551,9 @@ EOF \end{perlcode}
     creating a key called {\tt foo::bar} even though there isn't a namespace called {\tt foo::}. This problem can be solved at the interface level (i.e.~inside {\tt edit}, {\tt set}, and
     such), but it's probably more useful to go a step further and abstract all access to \verb|%data|.
 
-    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}.\footnote{I can't remember why I thought {\tt
-    retrieve} was necessary when I wrote {\tt object}. As far as I know it still isn't; it's just there for symmetry I think.} These two functions also benefit from a couple more to separate
-    out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these functions are taken directly
-    from {\tt object}.}
+    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}. These two functions also benefit from a
+    couple more to separate out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these
+    functions are taken directly from {\tt object}.}
 
 \lstset{caption={snippets/namespace-attribute-retrieve-associate-functions},name={snippets/namespace-attribute-retrieve-associate-functions}}\begin{perlcode}
 meta::internal_function('namespace', <<'EOF');
@@ -1890,7 +1891,45 @@ internal::main();
 
 __END__ \end{perlcode}
 
+
 \part{The Fun Stuff}
+\chapter{Rendering as HTML}\label{sec:rendering-as-html}
+  It turns out that browsers are very lenient about what they're willing to render as HTML. From what I've seen, anything that ends with {\tt .html} will be rendered this way, with extra stuff
+  inserted into the \verb|<body>| as toplevel text. This is perfect for doing some fun stuff with self-modifying Perl files.
+
+  First, I should note that the actual UI implementation is in Caterwaul 0.x and is beyond the scope of this guide. But the basic ideas still apply. There are two things you'll want to do to
+  make your script HTML-renderable. The first is to create a {\tt bootstrap::} attribute with some markup in it. It's useful for it to be a {\tt bootstrap::} attribute because these are
+  unevaluated. Here's {\tt bootstrap::html} from {\tt object}:
+
+\lstset{caption={snippets/object/bootstrap::html},name={snippets/object/bootstrap::html}}\begin{resourcecode}
+<html>
+  <head>
+  <meta http-equiv='content-type' content='text/html; charset=UTF-8' />
+  <link rel='stylesheet' href='http://spencertipping.com/perl-objects/web/style.css'/>
+
+  <script src='http://ajax.googleapis.com/ajax/libs/jquery/1.5.2/jquery.min.js'></script>
+  <script src='http://spencertipping.com/caterwaul/caterwaul.all.min.js'></script>
+  <script src='http://spencertipping.com/montenegro/montenegro.client.js'></script>
+  <script src='http://spencertipping.com/perl-objects/web/attribute-parser.js'></script>
+  <script src='http://spencertipping.com/perl-objects/web/interface.js'></script>
+  </head>
+  <body></body>
+</html> \end{resourcecode}
+
+  If you copy this attribute into a Perl file, it should indeed render as a web page. There's really only one problem with it, which is that before {\tt bootstrap::html} is loaded you'll see a
+  bunch of garbage on the screen. Rather than solve this in any sane and correct way, I just implemented this hack in {\tt bootstrap::initialization}:\footnote{The backslash before the end of
+  the line isn't in the real {\tt object}, I just put it here to indicate that the line should be continued, not broken.}
+
+\lstset{caption={snippets/object/bootstrap::initialization-div},name={snippets/object/bootstrap::initialization-div}}\begin{resourcecode}
+# For the benefit of HTML viewers (this is hack):
+# <div id='cover' style='position: absolute; left: 0; top: 0; \
+    width: 10000px; height: 10000px; background: white'></div> \end{resourcecode}
+
+  This covers up the garbage until a function in {\tt interface.js} removes the covering \verb|<div>|.
+
+  By the way, I highly recommend using the HTML view of Perl objects while reading the rest of this guide. You can get to them here: \url{http://spencertipping.com/perl-objects} (each {\tt
+  .html} file is just a symlink to the Perl object of the same name).
+
 \chapter{{\tt eval} backtraces}\label{sec:eval-backtraces}
   Our script is fairly awesome so far. It prevents us from creating attributes in namespaces that don't exist, since that would cause incorrect serialization, it verifies before it saves, etc.
   But there's one problem. Take a look at the error messages we get:
@@ -2391,4 +2430,284 @@ $ ./foo ls -a parent::
 parent::/path/to/object
 $
 \end{verbatim}
+\chapter{Detecting divergence}\label{sec:detecting-divergence}
+  The inheritance system built in the last chapter has a couple of problems. One is a subtle race condition that can happen when a script has grandparents and out-of-date parents. The other is
+  the very real deficiency that objects can't have divergent attributes without those attributes then being overwritten on the next update.\footnote{I ran into this when writing Caterwaul; its
+  homepage is a self-modifying Perl file that needed a gray background instead of a white one when rendered as HTML. So I wrote divergence detection.}
+
+  Neither of these problems is actually very difficult to solve. All we need to do is store not only the name of the attribute that we inherited, but also the state it was in when we last read
+  it. We then make sure that the attribute we've got hasn't changed since we last read it before we update it. If it's in a different state, we assume that it was modified locally and preserve
+  our local copy.
+
+\section{Attribute hashing}
+    Right now, {\tt parent::} attributes are stored as lists of attributes defined by that parent. What we really want is not only the names of those attributes, but their hashes as well. So,
+    for example, we inherited {\tt function::ls} from {\tt object} and its hash was {\tt 01a23d51d5b529e03943bd57e33f92df}. If our copy isn't the same, then we preserve our local one because
+    it's divergent.
+
+    {\tt function::update-from} uses {\tt ls} to get the attribute list that ends up making up the {\tt parent::} attribute. The last implementation used {\tt -aiu}; we'll add a new
+    command-line option called {\tt -h} that tells {\tt ls} to include hashes. So the output would look like this:
+
+\begin{verbatim}
+$ ./object ls -ahiu
+...
+meta::type::meta       c6250056816b58a9608dd1b2614246f8
+meta::type::parent     09d1d03379e4e0b262e06939f4e00464
+meta::type::retriever  71a29050bf9f20f6c71afddff83addc9
+meta::type::state      84da7d5220471307f1f990c5057d3319
+...
+$
+\end{verbatim}
+
+    This is saying that {\tt object}'s copy of {\tt meta::type::meta} hashes to {\tt c6250056816b58a9608dd1b2614246f8}, so if ours doesn't, then we have diverged. This divergence detection is
+    taken care of by {\tt update-from}, which still evaluates everything the parent script sends but restores divergent attribute values after the fact. (I considered doing it the right way
+    and having the parent script not send divergent attributes, but this was more complicated than I wanted to implement.)
+
+\section{The code (lots of it)}
+    In order to implement all of this stuff, we'll need to modify {\tt ls} and {\tt update-from}.
+
+\subsection{The new {\tt ls}}
+      Here's the monster {\tt ls} that {\tt object} defines:\footnote{Don't worry if you don't get what's going on here. Most of it is just display logic.}
+
+\lstset{caption={snippets/updated-ls},name={snippets/updated-ls}}\begin{resourcecode}
+meta::function('ls', <<'EOF');
+my ($options, @criteria) = separate_options(@_);
+my ($external, $shadows, $sizes, $flags, $long, $hashes, $parent_hashes) =
+    @$options{qw(-e -s -z -f -l -h -p)};
+
+$sizes = $flags = $hashes = $parent_hashes = 1 if $long;
+
+return table_display([grep ! exists $data{$externalized_functions{$_}},
+    sort keys %externalized_functions]) if $shadows;
+
+my $criteria    = join('|', @criteria);
+my @definitions = select_keys('--criteria' => $criteria,
+                              '--path' => $transient{path}, %$options);
+
+my %inverses  = map {$externalized_functions{$_} => $_} keys %externalized_functions;
+my @externals = map $inverses{$_}, grep length, @definitions;
+my @internals = grep length $inverses{$_}, @definitions;
+my @sizes     = map sprintf('%6d %6d', length(serialize_single($_)), length(retrieve($_))),
+    @{$external ? \@internals : \@definitions} if $sizes;
+
+my @flags     = map {my $k = $_; join '', map(is($k, "-$_") ? $_ : '-', qw(d i m u))}
+    @definitions if $flags;
+
+my @hashes    = map fast_hash(retrieve($_)), @definitions if $hashes;
+
+my %inherited     = parent_attributes(grep /^parent::/o, keys %data) if $parent_hashes;
+my @parent_hashes = map $inherited{$_} || '-', @definitions if $parent_hashes;
+
+join "\n", map strip($_), split /\n/,
+    table_display($external ? [grep length, @externals] : [@definitions],
+                  $sizes ? ([@sizes]) : (), $flags ? ([@flags]) : (),
+                  $hashes ? ([@hashes]) : (), $parent_hashes ? ([@parent_hashes]) : ());
+EOF \end{resourcecode}
+
+      There isn't as much going on here as it looks like. Most of the logic is just figuring out what to display, as this {\tt ls} implementation supports many different display modes. A few
+      things I would like to point out, though, are:
+
+\begin{enumerate}
+\item{}
+  On line 8, I reference a function called \verb|table_display|. This just puts things into aligned columns; here's how {\tt object} defines it:
+
+\lstset{caption={snippets/table-display},name={snippets/table-display}}\begin{resourcecode}
+meta::internal_function('table_display', <<'EOF');
+# Displays an array of arrays as a table; that is, with alignment. Arrays are
+# expected to be in column-major order.
+
+sub maximum_length_in {
+  my $maximum = 0;
+  length > $maximum and $maximum = length for @_;
+  $maximum;
+}
+
+my @arrays    = @_;
+my @lengths   = map maximum_length_in(@$_), @arrays;
+my @row_major = map {my $i = $_; [map $$_[$i], @arrays]} 0 .. $#{$arrays[0]};
+my $format    = join '  ', map "%-${_}s", @lengths;
+
+join "\n", map strip(sprintf($format, @$_)), @row_major;
+EOF \end{resourcecode}
+
+\item{}
+  On line 13, I reference \verb|$transient{path}|. This is a really useful shell feature that implicitly filters attributes when you type {\tt ls}, but otherwise has nothing to do with
+  what's going on here.
+
+\item{}
+  On line 21, I reference a function called {\tt is()}. Remember the gnarly {\tt grep} conditional in \verb|select_keys|? That's now factored into {\tt function::is}. Here's {\tt
+  object}'s implementation:
+
+\lstset{caption={snippets/function-is},name={snippets/function-is}}\begin{resourcecode}
+meta::function('is', <<'EOF');
+my ($attribute, @criteria) = @_;
+my ($options, @stuff) = separate_options(@criteria);
+exists $data{$attribute} and attribute_is($attribute, %$options);
+EOF \end{resourcecode}
+
+\lstset{caption={snippets/internal-function-attribute-is},name={snippets/internal-function-attribute-is}}\begin{resourcecode}
+meta::internal_function('attribute_is', <<'EOF');
+my ($a, %options) = @_;
+my %inherited = parent_attributes(grep /^parent::/o, sort keys %data) if
+    grep exists $options{$_}, qw/-u -U -d -D/;
+
+my $criteria = $options{'--criteria'} ||
+               $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+
+my %tests = ('-u' => sub {! $inherited{$a}},
+             '-d' => sub {$inherited{$a} && fast_hash(retrieve($a)) ne $inherited{$a}},
+             '-i' => sub {$transient{inherit}{namespace($a)}},
+             '-s' => sub {$a =~ /^state::/o},
+             '-m' => sub {$a =~ /^meta::/o});
+
+# These checks make sure all tests are satisfied (a test is just a
+# command-line option). I'm sure there's a clearer way to do it...
+return 0 unless scalar keys %tests == scalar
+    grep ! exists $options{$_}    ||   &{$tests{$_}}(), keys %tests;
+
+return 0 unless scalar keys %tests == scalar
+    grep ! exists $options{uc $_} || ! &{$tests{$_}}(), keys %tests;
+
+$a =~ /$_/ || return 0 for @{$options{'--path'}};       # I'll explain this later
+$a =~ /$criteria/;
+EOF \end{resourcecode}
+\end{enumerate}
+
+\subsection{The new {\tt update-from}}
+      
+
+\chapter{Virtual attributes}
+  In the last chapter, {\tt retrieve} was defined to grab either an attribute or a file. But there are a lot more things you might want to do with it, including creating views of existing
+  data. This is exactly what virtual attributes are about.
+
+\section{Core implementation}
+    Here's an updated {\tt retrieve}:
+
+\lstset{caption={snippets/updated-retrieve},name={snippets/updated-retrieve}}\begin{resourcecode}
+meta::internal_function('retrieve', <<'EOF');
+my @results = map defined $data{$_} ? $data{$_} : retrieve_with_hooks($_), @_;
+wantarray ? @results : $results[0];
+EOF \end{resourcecode}
+
+    This is exactly the same as the one before except that the hard-coded {\tt file::read} call has been replaced by a call to \verb|retrieve_with_hooks|. This provides the indirection
+    necessary to allow the user to introduce arbitrary retrievers. Before the user can do this, though, we'll need to make a new namespace:
+
+\lstset{caption={snippets/meta-retriever},name={snippets/meta-retriever}}\begin{resourcecode}
+meta::meta('type::retriever', <<'EOF');
+meta::configure 'retriever', extension => '.pl', inherit => 1;
+meta::define_form 'retriever', sub {
+  my ($name, $value) = @_;
+  $transient{retrievers}{$name} = meta::eval_in("sub {\n$value\n}", "retriever::$name");
+};
+EOF \end{resourcecode}
+
+    Nothing particularly interesting is going on here. We're just maintaining a ${\rm name} \rightarrow {\rm implementation}$ mapping in \verb|%transient|. This mapping is then used by
+    \verb|retrieve_with_hooks|, which asks {\tt retriever::} functions for their values until one of them returns something besides {\tt undef}:
+
+\lstset{caption={snippets/retrieve-with-hooks},name={snippets/retrieve-with-hooks}}\begin{resourcecode}
+meta::internal_function('retrieve_with_hooks', <<'EOF');
+# Uses the hooks defined in $transient{retrievers}, and returns undef if none work.
+my ($attribute) = @_;
+my $result      = undef;
+
+defined($result = &$_($attribute)) and return $result for
+    map $transient{retrievers}{$_}, sort keys %{$transient{retrievers}};
+
+return undef;
+EOF \end{resourcecode}
+
+\section{Retrievers in {\tt object}}
+    {\tt object} comes with four retrievers:
+
+\begin{enumerate}
+\item[{\tt retriever::file}]
+  Retrieves contents from a filename. This lets you say things like {\tt cat foo}, where {\tt foo} is a file. By extension, you can also copy files into named attributes using {\tt
+  function::cp}.
+
+\lstset{caption={snippets/retriever-file},name={snippets/retriever-file}}\begin{resourcecode}
+meta::retriever('file', <<'EOF');
+-f $_[0] ? file::read($_[0]) : undef;
+EOF \end{resourcecode}
+
+\item[{\tt retriever::id}]
+  Retrieves the string you are retrieving. This is primarily useful when you want a quick test value for something. For instance {\tt cat id::foobar} will print {\tt foobar}. Note that
+  {\tt id::} is not defined as a namespace, it's just a name pattern detected by {\tt retriever::id}.
+
+\lstset{caption={snippets/retriever-id},name={snippets/retriever-id}}\begin{resourcecode}
+meta::retriever('id', <<'EOF');
+$_[0] =~ /^id::/ ? substr($_[0], 4) : undef;
+EOF \end{resourcecode}
+
+\item[{\tt retriever::object}]
+  This is a fun one. It lets you ask other Perl objects for their attributes. For example, {\tt cat object::./foo::function::ls} fetches {\tt function::ls} from {\tt ./foo}. If {\tt
+  ./foo} is unreachable or doesn't contain {\tt function::ls}, then {\tt undef} is returned (which allows other retrievers to try to resolve your virtual attribute).
+
+\lstset{caption={snippets/retriever-object},name={snippets/retriever-object}}\begin{resourcecode}
+meta::retriever('object', <<'EOF');
+# Fetch a property from another Perl object. This uses the 'cat' function.
+return undef unless $_[0] =~ /^object::(.*?)::(.*)$/ && -x $1 && qx|$1 is '$2'|;
+join '', qx|$1 cat '$2'|;
+EOF \end{resourcecode}
+
+\item[{\tt retriever::perl}]
+  This returns the result of evaluating a given Perl expression. For example, {\tt cat perl::3+4} prints {\tt 7}.
+
+\lstset{caption={snippets/retriever-perl},name={snippets/retriever-perl}}\begin{resourcecode}
+meta::retriever('perl', <<'EOF');
+# Lets you use the result of evaluating some Perl expression
+return undef unless $_[0] =~ /^perl::(.*)$/;
+eval $1;
+EOF \end{resourcecode}
+\end{enumerate}
+
+    As you can see, there's not much involved in writing a retriever. The only particularly counterintuitive thing about it is returning {\tt undef} instead of {\tt 0} or the empty string.
+
+  - Fixing up {\tt edit}
+    Right now, {\tt function::edit} will happily let you edit a virtual attribute and then attempt to {\tt associate} it, causing a failure. This is obviously lame; here's a better {\tt edit}
+    function that takes care of this:
+
+\lstset{caption={snippets/updated-edit},name={snippets/updated-edit}}\begin{resourcecode}
+meta::function('edit', <<'EOF');
+my ($name, %options) = @_;
+my $extension = extension_for($name);
+
+die "$name is virtual or does not exist" unless exists $data{$name};
+
+associate($name, invoke_editor_on($data{$name} // '', %options,
+    attribute => $name, extension => $extension), execute => 1)});
+
+save() unless $data{'data::edit::no-save'};
+'';
+EOF \end{resourcecode}
+
+  - More interesting retrievers
+    I'm writing this document in a self-modifying Perl file that includes a simple preprocessor.\footnote{Unsurprisingly, it's called {\tt preprocessor} in the {\tt perl-objects} repository.}
+    In order to make this work, there are a bunch of attributes in the {\tt section::} namespace, and each one includes some preprocessor directives to either include other attributes or to
+    generate \TeX{} constructs (in some cases both).
+
+    The easiest way to render the document as \TeX{} is to just have a virtual attribute I can retrieve that will contain the fully preprocessed source. Fortunately, {\tt preprocessor}
+    provides {\tt retriever::pp} that does exactly this. Here's what that looks like:
+
+\lstset{caption={snippets/retriever-pp},name={snippets/retriever-pp}}\begin{resourcecode}
+meta::retriever('pp', <<'EOF');
+return undef unless namespace($_[0]) eq 'pp';
+my $attr = retrieve(attribute($_[0]));
+defined $attr ? preprocess($attr) : undef;
+EOF \end{resourcecode}
+
+    Notice that this retriever itself calls {\tt retrieve}! This is totally allowed as long as you don't create an infinite loop. Here, we're trimming the {\tt pp::} from the beginning of the
+    attribute and are just retrieving the rest of it. This is good practice, as it lets you combine virtual retrievers. For example, you could preprocess an external file by saying {\tt cat
+    pp::my-file}.
+
+    Another interesting retriever is the {\tt http} retriever defined in {\tt repository}. This lets you retrieve arbitrary web content through Perl's LWP library:
+
+\lstset{caption={snippets/retriever-http},name={snippets/retriever-http}}\begin{resourcecode}
+meta::retriever('http', <<'EOF');
+use LWP::Simple ();
+return undef unless $_[0] =~ /^(?:http:)?\/\/(\w+.*)$/;
+LWP::Simple::get("http://$1");
+EOF \end{resourcecode}
+
+    If you have this retriever, you can say things like {\tt cat http://google.com} (or shorter, {\tt cat //google.com}) and get back the content sent by the web server. This is especially
+    useful when combined with the preprocessor, as it allows you to compile web-based resources into the final output.
+
 \end{document}

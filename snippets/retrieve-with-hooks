@@ -1,0 +1,10 @@
+meta::internal_function('retrieve_with_hooks', <<'EOF');
+# Uses the hooks defined in $transient{retrievers}, and returns undef if none work.
+my ($attribute) = @_;
+my $result      = undef;
+
+defined($result = &$_($attribute)) and return $result for
+    map $transient{retrievers}{$_}, sort keys %{$transient{retrievers}};
+
+return undef;
+EOF

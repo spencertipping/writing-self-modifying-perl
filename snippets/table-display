@@ -1,0 +1,17 @@
+meta::internal_function('table_display', <<'EOF');
+# Displays an array of arrays as a table; that is, with alignment. Arrays are
+# expected to be in column-major order.
+
+sub maximum_length_in {
+  my $maximum = 0;
+  length > $maximum and $maximum = length for @_;
+  $maximum;
+}
+
+my @arrays    = @_;
+my @lengths   = map maximum_length_in(@$_), @arrays;
+my @row_major = map {my $i = $_; [map $$_[$i], @arrays]} 0 .. $#{$arrays[0]};
+my $format    = join '  ', map "%-${_}s", @lengths;
+
+join "\n", map strip(sprintf($format, @$_)), @row_major;
+EOF

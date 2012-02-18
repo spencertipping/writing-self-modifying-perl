@@ -1,0 +1,3 @@
+meta::retriever('file', <<'EOF');
+-f $_[0] ? file::read($_[0]) : undef;
+EOF

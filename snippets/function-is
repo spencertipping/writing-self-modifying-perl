@@ -1,0 +1,5 @@
+meta::function('is', <<'EOF');
+my ($attribute, @criteria) = @_;
+my ($options, @stuff) = separate_options(@criteria);
+exists $data{$attribute} and attribute_is($attribute, %$options);
+EOF

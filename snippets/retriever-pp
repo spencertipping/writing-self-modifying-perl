@@ -1,0 +1,5 @@
+meta::retriever('pp', <<'EOF');
+return undef unless namespace($_[0]) eq 'pp';
+my $attr = retrieve(attribute($_[0]));
+defined $attr ? preprocess($attr) : undef;
+EOF

@@ -1,0 +1,5 @@
+meta::retriever('object', <<'EOF');
+# Fetch a property from another Perl object. This uses the 'cat' function.
+return undef unless $_[0] =~ /^object::(.*?)::(.*)$/ && -x $1 && qx|$1 is '$2'|;
+join '', qx|$1 cat '$2'|;
+EOF

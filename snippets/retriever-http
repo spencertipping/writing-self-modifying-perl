@@ -1,0 +1,5 @@
+meta::retriever('http', <<'EOF');
+use LWP::Simple ();
+return undef unless $_[0] =~ /^(?:http:)?\/\/(\w+.*)$/;
+LWP::Simple::get("http://$1");
+EOF

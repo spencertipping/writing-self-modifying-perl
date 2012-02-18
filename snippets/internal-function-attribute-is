@@ -1,0 +1,25 @@
+meta::internal_function('attribute_is', <<'EOF');
+my ($a, %options) = @_;
+my %inherited = parent_attributes(grep /^parent::/o, sort keys %data) if
+    grep exists $options{$_}, qw/-u -U -d -D/;
+
+my $criteria = $options{'--criteria'} ||
+               $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+
+my %tests = ('-u' => sub {! $inherited{$a}},
+             '-d' => sub {$inherited{$a} && fast_hash(retrieve($a)) ne $inherited{$a}},
+             '-i' => sub {$transient{inherit}{namespace($a)}},
+             '-s' => sub {$a =~ /^state::/o},
+             '-m' => sub {$a =~ /^meta::/o});
+
+# These checks make sure all tests are satisfied (a test is just a
+# command-line option). I'm sure there's a clearer way to do it...
+return 0 unless scalar keys %tests == scalar
+    grep ! exists $options{$_}    ||   &{$tests{$_}}(), keys %tests;
+
+return 0 unless scalar keys %tests == scalar
+    grep ! exists $options{uc $_} || ! &{$tests{$_}}(), keys %tests;
+
+$a =~ /$_/ || return 0 for @{$options{'--path'}};       # I'll explain this later
+$a =~ /$criteria/;
+EOF

@@ -1,0 +1,5 @@
+meta::retriever('perl', <<'EOF');
+# Lets you use the result of evaluating some Perl expression
+return undef unless $_[0] =~ /^perl::(.*)$/;
+eval $1;
+EOF

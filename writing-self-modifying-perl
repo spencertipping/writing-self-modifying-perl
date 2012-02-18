@@ -333,7 +333,11 @@ meta::define_form 'template', sub {
   meta::externalize "template::$name", "template::$name", meta::eval_in("sub {\n$value\n}", "template::$name");
 };
 __
-meta::meta('type::vim_highlighter', 'meta::functor::editable \'vim_highlighter\', extension => \'.vim\', inherit => 1, default => \'edit\';');
+meta::meta('type::vim_highlighter', <<'__');
+meta::configure 'vim_highlighter', extension => '.vim', inherit => 1;
+meta::define_form 'vim_highlighter', \&meta::bootstrap::implementation;
+
+__
 meta::bootstrap('html', <<'__');
 <html>
   <head>
@@ -470,8 +474,9 @@ push @{$transient{path}}, @_;
 __
 meta::function('alias', <<'__');
 my ($name, @stuff) = @_;
-return ls('-a', '^alias::') unless defined $name;
-@stuff ? around_hook('alias', @_, sub {associate("alias::$name", join(' ', @stuff), execute => 1)}) : retrieve("alias::$name") || "Undefined alias $name";
+@_ ? @stuff ? around_hook('alias', @_, sub {associate("alias::$name", join(' ', @stuff), execute => 1)})
+            : retrieve("alias::$name") // "Undefined alias $name"
+   : table_display([select_keys('--namespace' => 'alias')], [map retrieve($_), select_keys('--namespace' => 'alias')]);
 
 __
 meta::function('cat', 'join "\\n", retrieve(@_);');
@@ -527,7 +532,7 @@ file::write("$temporary_directory/$filename.tex", $contents);
 
 my $result = table_of_contents() ? system($tex_command) || system($tex_command) || system($pdftex_command) : system($pdftex_command);
 
-associate('data::pdf-output-file', "$temporary_directory/$filename.pdf", execute => 1);
+$transient{pdf_output_file} = "$temporary_directory/$filename.pdf";
 $result;
 
 __
@@ -696,7 +701,9 @@ $name;
 __
 meta::function('note', <<'__');
 # Creates a note with a given name, useful for jotting things down.
-create("note::$_[0]");
+my $name = join('-', @_);
+create("note::$name");
+
 __
 meta::function('notes', 'ls(\'-a\', \'^note::\');');
 meta::function('parents', 'join "\\n", grep s/^parent:://o, sort keys %data;');
@@ -759,8 +766,9 @@ while ($old_string ne $string and $expansions++ < $limit) {
 $string;
 __
 meta::function('rd', <<'__');
-my $pattern = join '|', @_;
-@{$transient{path}} = grep $_ !~ /^$pattern$/, @{$transient{path}};
+if (@_) {my $pattern = join '|', @_;
+         @{$transient{path}} = grep $_ !~ /^$pattern$/, @{$transient{path}}}
+else    {pop @{$transient{path}}}
 
 __
 meta::function('reload', 'around_hook(\'reload\', sub {execute($_) for grep ! /^bootstrap::/, keys %data});');
@@ -768,20 +776,47 @@ meta::function('render', <<'__');
 use File::Copy 'copy';
 compile();
 
-my $pdf       = pdf_output_file();
+my $pdf       = $transient{pdf_output_file};
 my $tex       = $pdf;
 my $directory = source_directory();
 my $name      = name();
 
 $tex =~ s/\.pdf$/.tex/;
-copy($pdf, "$directory/$name.pdf") or die "Copy failed: $!";
-copy($tex, "$directory/$name.tex") or die "Copy failed: $!";
+copy($pdf, "$directory/$name.pdf") or die $!;
+copy($tex, "$directory/$name.tex") or die $!;
 
 __
 meta::function('rm', <<'__');
 around_hook('rm', @_, sub {
   exists $data{$_} or terminal::warning("$_ does not exist") for @_;
   delete @data{@_}});
+__
+meta::function('rmparent', <<'__');
+# Removes one or more parents.
+my ($options, @parents) = separate_options(@_);
+my $clobber_divergent = $$options{'-D'} || $$options{'--clobber-divergent'};
+
+my %parents = map {$_ => 1} @parents;
+my @other_parents = grep !$parents{$_}, grep s/^parent:://, select_keys('--namespace' => 'parent');
+my %kept_by_another_parent;
+
+$kept_by_another_parent{$_} = 1 for grep s/^(\S+)\s.*$/\1/, split /\n/o, cat(@other_parents);
+
+for my $parent (@parents) {
+  my $keep_parent_around = 0;
+
+  for my $line (split /\n/, retrieve("parent::$parent")) {
+    my ($name, $hash) = split /\s+/, $line;
+    next unless exists $data{$name};
+
+    my $local_hash = fast_hash(retrieve($name));
+    if ($clobber_divergent or $hash eq $local_hash or ! defined $hash) {rm($name) unless $kept_by_another_parent{$name}}
+    else {terminal::info("local attribute $name exists and is divergent; use rmparent -D $parent to delete it");
+          $keep_parent_around = 1}}
+
+  $keep_parent_around ? terminal::info("not deleting parent::$parent so that you can run", "rmparent -D $parent if you want to nuke divergent attributes too")
+                      : rm("parent::$parent")}
+
 __
 meta::function('save', 'around_hook(\'save\', sub {dangerous(\'\', sub {file::write($0, serialize()); $transient{initial} = state()}) if verify()});');
 meta::function('save-state', <<'__');
@@ -848,14 +883,18 @@ exec(@_) unless fork;
 
 __
 meta::function('shell', <<'__');
+my ($options, @arguments) = separate_options(@_);
+$transient{repl_prefix} = $$options{'--repl-prefix'};
+
 terminal::cc(retrieve('data::current-continuation')) if length $data{'data::current-continuation'};
-around_hook('shell', sub {shell::repl()});
+around_hook('shell', sub {shell::repl(%$options)});
 
 __
 meta::function('size', <<'__');
 my $size = 0;
 $size += length $data{$_} for keys %data;
-sprintf "% 7d % 7d", length(serialize()), $size;
+sprintf "% 7d % 7d % 7d", length(serialize()), $size, length(serialize('-up'));
+
 __
 meta::function('snapshot', <<'__');
 my ($name) = @_;
@@ -957,19 +996,23 @@ hook('after-verify', $result, observed => $observed, expected => $state);
 $result;
 __
 meta::function('view', <<'__');
-my $pdf_reader      = &{'pdf-reader'}();
-my $pdf_output_file = &{'pdf-output-file'}();
+my $pdf_reader = pdf_reader();
 chomp $pdf_reader;
-system("$pdf_reader '$pdf_output_file'");
+system("$pdf_reader '$transient{pdf_output_file}'");
+
 __
 meta::function('vim', <<'__');
 # Installs VIM highlighters.
 file::write("$ENV{'HOME'}/.vim/syntax/$_.vim", retrieve("vim_highlighter::$_")) for grep s/^vim_highlighter:://o, keys %data;
 __
+meta::hook('before-shell::ad', <<'__');
+ad('section::');
+
+__
 meta::indicator('cc', 'length ::retrieve(\'data::current-continuation\') ? "\\033[1;36mcc\\033[0;0m" : \'\';');
 meta::indicator('locked', 'is_locked() ? "\\033[1;31mlocked\\033[0;0m" : \'\';');
 meta::indicator('path', <<'__');
-join "\033[1;30m|\033[0;0m", @{$transient{path}};
+join "\033[1;30m/\033[0;0m", @{$transient{path}};
 
 __
 meta::internal_function('around_hook', <<'__');
@@ -1006,7 +1049,6 @@ meta::internal_function('attribute_is', <<'__');
 my ($a, %options) = @_;
 my %inherited     = parent_attributes(grep /^parent::/o, sort keys %data) if grep exists $options{$_}, qw/-u -U -d -D/;
 my $criteria      = $options{'--criteria'} || $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
-my $path          = $options{'--path'} ? join('|', @{$options{'--path'}}) : '.';
 
 my %tests = ('-u' => sub {! $inherited{$a}},
              '-d' => sub {$inherited{$a} && fast_hash(retrieve($a)) ne $inherited{$a}},
@@ -1016,7 +1058,9 @@ my %tests = ('-u' => sub {! $inherited{$a}},
 
 return 0 unless scalar keys %tests == scalar grep ! exists $options{$_}    ||   &{$tests{$_}}(), keys %tests;
 return 0 unless scalar keys %tests == scalar grep ! exists $options{uc $_} || ! &{$tests{$_}}(), keys %tests;
-$a =~ /$criteria/ and $a =~ /$path/;
+
+$a =~ /$_/ || return 0 for @{$options{'--path'}};
+$a =~ /$criteria/;
 
 __
 meta::internal_function('cache', <<'__');
@@ -1054,6 +1098,7 @@ meta::internal_function('exported', <<'__');
 my $filename = temporary_name();
 file::write($filename, cat(@_));
 $filename;
+
 __
 meta::internal_function('extension_for', <<'__');
 my $extension = $transient{extension}{namespace($_[0])};
@@ -1244,10 +1289,11 @@ my @others  = grep ! /^-/,   @parseable;
 my @singles = map /-(.{2,})/ ? map("-$_", split(//, $1)) : $_, @singles;
 
 my %options;
-  $options{$1} = $2 for grep /^([^=]+)=(.*)$/, @longs;
-++$options{$_}      for grep ! /=/, @singles, @longs;
+/^([^=]+)=(.*)$/ and $options{$1} = $2 for @longs;
+++$options{$_} for grep ! /=/, @singles, @longs;
 
 ({%options}, @others, @_);
+
 __
 meta::internal_function('strip', 'wantarray ? map {s/^\\s*|\\s*$//g; $_} @_ : $_[0] =~ /^\\s*(.*?)\\s*$/ && $1;');
 meta::internal_function('table_display', <<'__');
@@ -1311,8 +1357,9 @@ sub prompt {
   my $name    = $options{name} // ::name();
 
   my $indicators = join '', map &{"::$_"}(), ::select_keys('--namespace' => 'indicator');
+  my $prefix     = $transient{repl_prefix} // '';
 
-  "\033[1;32m$name\033[0;0m$indicators "}
+  "$prefix\033[1;32m$name\033[0;0m$indicators "}
 
 sub repl {
   my %options = @_;
@@ -1348,11 +1395,12 @@ meta::message_color('cc', '36');
 meta::message_color('state', 'purple');
 meta::message_color('states', 'yellow');
 meta::parent('./sdoc', <<'__');
-function::sdoc                           237d9c094c1f8ef0c074071618f0af25
+function::sdoc                           f3f3f3127961399a4c38152771c966ab
 function::sdoc-html                      7e7de47fe059a336309a4a0c06856401
 function::sdocp                          c3d738d982ba87418a298ff58478a85b
 meta::type::sdoc                         22cd7315641d38c9d536344e83c36bed
-parent::/home/spencertipping/bin/object  d53d1f464e12d065394298dd96d22301
+meta::type::slibrary                     95474943c4a5f8ff17d3cf66ddb7c386
+parent::/home/spencertipping/bin/object  5788ae36d7790310e3b66d5ddd8b796e
 retriever::html-sdoc                     2a5d5aa45e2d7576f79e045177d8705c
 retriever::sdoc                          662061e9e41491e2a1debd6862ccf1e7
 retriever::sdocp                         330694ea14a23bb04b65c761075cd946
@@ -1360,16 +1408,16 @@ retriever::sdocp                         330694ea14a23bb04b65c761075cd946
 __
 meta::parent('/home/spencertipping/bin/configuration', <<'__');
 meta::type::configuration                7f5ba514d47ac29a3c226d0e331d9da4
-parent::/home/spencertipping/bin/object  d53d1f464e12d065394298dd96d22301
+parent::/home/spencertipping/bin/object  5788ae36d7790310e3b66d5ddd8b796e
 
 __
 meta::parent('/home/spencertipping/bin/literate-project', <<'__');
 function::clean                8754de0fa0d5fc535c47bca1183f6480
-function::compile              b9061077bd90c7569a87faf107909123
+function::compile              3f3a53221fad7dba741d689603ff562d
 function::make                 7234478722ac6a7cc9cf17c31a6e4283
-function::render               6007869fde6ef67a62573e5a2463a019
+function::render               bcb18a54e479a3fad2f3c90d5c40e6e9
 function::tex                  43ac46c21e4f5fb6b29976a213c109c6
-function::view                 de2c4bd98b39a709c9d84eb70c323f05
+function::view                 b7f4f81d82cbd4051309e99659c0f661
 internal_function::main        fb128e779c38aeeb04c4a508db7176d4
 meta::externalize_template     ce51d3e099f0fad21cd01e5c53382e85
 meta::functor::code-templates  2b8880f05f983ce5b8a19a01688b6001
@@ -1383,7 +1431,7 @@ meta::template::quotations     f76a27311c8a9d09550dd669e98f9a7f
 meta::template::sections       25cb0a42bf1c2f403f8f9c2e1c5e4105
 meta::type::resource           c521d2de1dcd7f9f7ec4df3557572009
 meta::type::section            fb3b53eaebc1a2433c1763eccdb781c4
-parent::development            ea5508a6ca5054fcd2c9643cd85529cb
+parent::development            79168a5886862b99577653bce0c45c31
 resource::header               165b42e25edb90043f5d3b544adee521
 resource::header-languages     96d12558e40d0df64ff3176b767f4f3b
 resource::header-listings      712557f5989b12ca325bdd2cd36020ef
@@ -1399,7 +1447,7 @@ bootstrap::html                         f44dd03cb0c904b3a5f69fbda5f018d0
 bootstrap::initialization               1cf74e7209f32722a79b6e49e3907fd3
 bootstrap::perldoc                      5793df44bdd2526bb461272924abfd4b
 function::ad                            77a05d9a6fef7871b2c3e8e94b56870a
-function::alias                         fb63bb3836ab968de2ee93f33d1704ec
+function::alias                         8eeeeb4e064ef3aba7edf8f254427bc2
 function::cat                           f684de6c8776617a437b76009114f52e
 function::cc                            12ea9176e388400704d823433c209b7a
 function::ccc                           d151a9793edd83f80fb880b7f0ab9b34
@@ -1428,17 +1476,18 @@ function::mv                            4a0e338a6edb89ad1e2c779d51d4d47b
 function::name                          955ba2d1fe1d67cd78651a4042283b00
 function::parents                       3da9e63b5aae9e2f5dcc946a86d166aa
 function::perl                          a0f341ea54391b63b6195e7992b6a686
-function::rd                            eea4e1cdd9133abb985205ae5daf5f15
+function::rd                            2adb16d7e819d2e87a27201744a581e7
 function::reload                        1589f4cf8374e0011991cb8907afca3e
 function::rm                            6f6fd7a6c25558eb469d78ea888f8551
+function::rmparent                      fc2884910a6939a47898a778f277332c
 function::save                          778c0e1043b9c6c96fb8f266f8061624
 function::save-state                    5af59ebc4ad8965767e4dc106d3b557e
 function::serialize                     a19ada2d2558ea9da3a7942fb913e15f
 function::serialize-single              aa77af032272f5a2664e21713739a223
 function::sh                            1b2f542ca9dd63ad437058b7f6f61aac
 function::shb                           7b2685a4041c25bc495816e472bdace5
-function::shell                         22d25a32ffc3f2855fb7e2aec77c72fb
-function::size                          6cd9a4dd17be87ea2962f8f566a97d11
+function::shell                         a87f389b94713e5855e62241d649d01d
+function::size                          8d4bd7a84ece556717f8ba3bf258d33c
 function::snapshot                      56939a47f2758421669641e15ebd66eb
 function::state                         8c68044dccae28f33244d0c7e9e9acfb
 function::touch                         3991b1b7c7187566f50e5e58ce01fa06
@@ -1449,17 +1498,17 @@ function::usage                         5bdd370f5a56cfbf199e08d398091444
 function::verify                        0c0cc1dfeab7d705919df122f7850a4f
 indicator::cc                           3db7509c521ee6abfedd33d5f0148ed3
 indicator::locked                       fc2b4f4ca0d6a334b9ac423d06c8f18c
-indicator::path                         8a9685787cda6af8f63594f6dcde7582
+indicator::path                         9ec891df17cd45895f03a6124f9d065f
 internal_function::around_hook          7cc876e7c5f78c34654337fc95255587
 internal_function::associate            05a75afb70daee635eefec8ae037f593
 internal_function::attribute            dd6f010f9688977464783f60f5b6d3dd
-internal_function::attribute_is         a145549f6ce44abbcf66308b426d30ec
+internal_function::attribute_is         40bda8226322505e323ea6d405388f08
 internal_function::cache                eb9da45580a9ac0882baf98acd2ecd60
 internal_function::chmod_self           2035e861eedab55ba0a9f6f5a068ca70
 internal_function::dangerous            46c4baaa214ab3d05af43e28083d5141
 internal_function::debug_trace          0faf9d9f4159d72dfe4481f6f3607ce1
 internal_function::execute              f0924e087d978ff2ab1e117124db3042
-internal_function::exported             3ec48f01deefa840b52111f2e3f34749
+internal_function::exported             ae35afef7d4762f2818aee5872c75be0
 internal_function::extension_for        9de8261d69cc93e9b92072b89c89befd
 internal_function::fast_hash            ee5eba48f837fda0fe472645fdd8899a
 internal_function::file::read           e647752332c8e05e81646a3ff98f9a8e
@@ -1475,13 +1524,13 @@ internal_function::parent_ordering      57b6da88f76b59f3fed9abfa61280e5e
 internal_function::retrieve             8a34d1fe047fe1b40c3d2957c4a789eb
 internal_function::retrieve_with_hooks  0f1b0220ccd973d57a2e96ff00458cf2
 internal_function::select_keys          a5e3532ec6d58151d0ee24416ea1e2b5
-internal_function::separate_options     da1c2a3a1e03faafe6b4446ebb6bad90
+internal_function::separate_options     34ec41a6edaa15adde607a0db3ccfa36
 internal_function::strip                14f490b10ebd519e829d8ae20ea4d536
 internal_function::table_display        d575f4dc873b2e0be5bd7352047fd904
 internal_function::temporary_name       6f548d101fc68356515ffd0fc9ae0c93
 internal_function::translate_backtrace  d77a56d608473b3cd8a3c6cb84185e10
 internal_function::with_exported        df345d5095d5ed13328ddd07ea922b36
-library::shell                          2c5e6663a8f672e2242a7d3ea3276f09
+library::shell                          6b9f3befb61a01e9132a440601f8ea0a
 library::terminal                       7e2d045782405934a9614fe04bcfe559
 message_color::cc                       2218ef0f7425de5c717762ffb100eb43
 message_color::state                    03621cd6ac0b1a40d703f41e26c5807f
@@ -1515,19 +1564,19 @@ meta::type::configuration                d67e10a128e6b1d958c5b9d3bbe25aa4
 parent::/home/spencertipping/bin/object  293415c4d45c10239298fa46b01cff17
 __
 meta::parent('development', <<'__');
-parent::./sdoc            80a565297328b30d6e95028d03bd7861
+parent::./sdoc            ebc273b9984a53b0e3a491ac74272c9b
 parent::configuration     835c872a2163166e001c4e07b5191353
-parent::notes             017f7493aa63b6db4a4668a237aa7538
-parent::preprocessor      09a56657d0fde76fcf3fa664d2c6b4ca
-parent::repository        5b2a3158563910cc089b10ca719b56f5
-parent::vim-highlighters  1f933c20697efa693fe0e0e6257df086
+parent::notes             a32dbfde9ecfcf3433dfd6575ffdf418
+parent::preprocessor      3b4cea3c3d232d9cca0496a72968df65
+parent::repository        9cb8c47c563910cc13f9f45ba31d732e
+parent::vim-highlighters  77c9231e0b6ba6e7aa6ed74193c02d2c
 
 __
 meta::parent('notes', <<'__');
-function::note    5e2737593e8d13fc43bb10e97603e53a
+function::note    c6d52ffe73cd48cd95fdc561c59d9f63
 function::notes   7229b326ac8686b2db6de98496bc7527
 meta::type::note  f81bea58841a438e4ee34608ab4f54c0
-parent::object    d53d1f464e12d065394298dd96d22301
+parent::object    5788ae36d7790310e3b66d5ddd8b796e
 
 __
 meta::parent('object', <<'__');
@@ -1535,7 +1584,7 @@ bootstrap::html                         f44dd03cb0c904b3a5f69fbda5f018d0
 bootstrap::initialization               1cf74e7209f32722a79b6e49e3907fd3
 bootstrap::perldoc                      5793df44bdd2526bb461272924abfd4b
 function::ad                            77a05d9a6fef7871b2c3e8e94b56870a
-function::alias                         fb63bb3836ab968de2ee93f33d1704ec
+function::alias                         8eeeeb4e064ef3aba7edf8f254427bc2
 function::cat                           f684de6c8776617a437b76009114f52e
 function::cc                            12ea9176e388400704d823433c209b7a
 function::ccc                           d151a9793edd83f80fb880b7f0ab9b34
@@ -1564,17 +1613,18 @@ function::mv                            4a0e338a6edb89ad1e2c779d51d4d47b
 function::name                          955ba2d1fe1d67cd78651a4042283b00
 function::parents                       3da9e63b5aae9e2f5dcc946a86d166aa
 function::perl                          a0f341ea54391b63b6195e7992b6a686
-function::rd                            eea4e1cdd9133abb985205ae5daf5f15
+function::rd                            2adb16d7e819d2e87a27201744a581e7
 function::reload                        1589f4cf8374e0011991cb8907afca3e
 function::rm                            6f6fd7a6c25558eb469d78ea888f8551
+function::rmparent                      fc2884910a6939a47898a778f277332c
 function::save                          778c0e1043b9c6c96fb8f266f8061624
 function::save-state                    5af59ebc4ad8965767e4dc106d3b557e
 function::serialize                     a19ada2d2558ea9da3a7942fb913e15f
 function::serialize-single              aa77af032272f5a2664e21713739a223
 function::sh                            1b2f542ca9dd63ad437058b7f6f61aac
 function::shb                           7b2685a4041c25bc495816e472bdace5
-function::shell                         22d25a32ffc3f2855fb7e2aec77c72fb
-function::size                          6cd9a4dd17be87ea2962f8f566a97d11
+function::shell                         a87f389b94713e5855e62241d649d01d
+function::size                          8d4bd7a84ece556717f8ba3bf258d33c
 function::snapshot                      56939a47f2758421669641e15ebd66eb
 function::state                         8c68044dccae28f33244d0c7e9e9acfb
 function::touch                         3991b1b7c7187566f50e5e58ce01fa06
@@ -1585,17 +1635,17 @@ function::usage                         5bdd370f5a56cfbf199e08d398091444
 function::verify                        0c0cc1dfeab7d705919df122f7850a4f
 indicator::cc                           3db7509c521ee6abfedd33d5f0148ed3
 indicator::locked                       fc2b4f4ca0d6a334b9ac423d06c8f18c
-indicator::path                         8a9685787cda6af8f63594f6dcde7582
+indicator::path                         9ec891df17cd45895f03a6124f9d065f
 internal_function::around_hook          7cc876e7c5f78c34654337fc95255587
 internal_function::associate            05a75afb70daee635eefec8ae037f593
 internal_function::attribute            dd6f010f9688977464783f60f5b6d3dd
-internal_function::attribute_is         a145549f6ce44abbcf66308b426d30ec
+internal_function::attribute_is         40bda8226322505e323ea6d405388f08
 internal_function::cache                eb9da45580a9ac0882baf98acd2ecd60
 internal_function::chmod_self           2035e861eedab55ba0a9f6f5a068ca70
 internal_function::dangerous            46c4baaa214ab3d05af43e28083d5141
 internal_function::debug_trace          0faf9d9f4159d72dfe4481f6f3607ce1
 internal_function::execute              f0924e087d978ff2ab1e117124db3042
-internal_function::exported             3ec48f01deefa840b52111f2e3f34749
+internal_function::exported             ae35afef7d4762f2818aee5872c75be0
 internal_function::extension_for        9de8261d69cc93e9b92072b89c89befd
 internal_function::fast_hash            ee5eba48f837fda0fe472645fdd8899a
 internal_function::file::read           e647752332c8e05e81646a3ff98f9a8e
@@ -1611,13 +1661,13 @@ internal_function::parent_ordering      57b6da88f76b59f3fed9abfa61280e5e
 internal_function::retrieve             8a34d1fe047fe1b40c3d2957c4a789eb
 internal_function::retrieve_with_hooks  0f1b0220ccd973d57a2e96ff00458cf2
 internal_function::select_keys          a5e3532ec6d58151d0ee24416ea1e2b5
-internal_function::separate_options     da1c2a3a1e03faafe6b4446ebb6bad90
+internal_function::separate_options     34ec41a6edaa15adde607a0db3ccfa36
 internal_function::strip                14f490b10ebd519e829d8ae20ea4d536
 internal_function::table_display        d575f4dc873b2e0be5bd7352047fd904
 internal_function::temporary_name       6f548d101fc68356515ffd0fc9ae0c93
 internal_function::translate_backtrace  d77a56d608473b3cd8a3c6cb84185e10
 internal_function::with_exported        df345d5095d5ed13328ddd07ea922b36
-library::shell                          2c5e6663a8f672e2242a7d3ea3276f09
+library::shell                          6b9f3befb61a01e9132a440601f8ea0a
 library::terminal                       7e2d045782405934a9614fe04bcfe559
 message_color::cc                       2218ef0f7425de5c717762ffb100eb43
 message_color::state                    03621cd6ac0b1a40d703f41e26c5807f
@@ -1650,7 +1700,7 @@ meta::parent('preprocessor', <<'__');
 function::preprocess           ab5526a02ff417d4c162357dc327e7c4
 meta::functor::html-templates  2771200f87e9cbfeecfb5f8a0f796f18
 meta::type::template           bc4b0c80b5efc716b19e99b832c22bf3
-parent::object                 d53d1f464e12d065394298dd96d22301
+parent::object                 5788ae36d7790310e3b66d5ddd8b796e
 retriever::pp                  3b5f5c5d30c5a04f72056dedaacfe7b7
 template::comment              dfe273d2dad3d8159b847545e4e5c309
 template::eval                 1a0e2124a05056be4abc11803883c294
@@ -1664,14 +1714,14 @@ __
 meta::parent('repository', <<'__');
 function::dupdate                               3203750417390913ae3892002b53bdc1
 meta::type::cached_dependency                   b9dc0b20c2d3af0deb3b835b20cac4a7
-parent::/home/spencertipping/bin/configuration  791f0ab933df84326bcabf75ca5caaf4
+parent::/home/spencertipping/bin/configuration  7df7136d772c7810d907d238e7cae3f2
 retriever::http                                 a23617a5787de41d1a89ad4496cacce3
 
 __
 meta::parent('vim-highlighters', <<'__');
 function::vim                cf9e37026f6cd1499a6dd258fbbcd060
-meta::type::vim_highlighter  11a2d74eca3445ee1b7887a6f6370462
-parent::object               d53d1f464e12d065394298dd96d22301
+meta::type::vim_highlighter  27990fddb6d7bd383b55dbdfee0d148d
+parent::object               5788ae36d7790310e3b66d5ddd8b796e
 
 __
 meta::resource('header', <<'__');
@@ -2778,10 +2828,153 @@ __
 meta::section('detecting-divergence', <<'__');
 - sc Detecting divergence | sec:detecting-divergence
   The inheritance system built in the last chapter has a couple of problems. One is a subtle race condition that can happen when a script has grandparents and out-of-date parents. The other is
-  the very real deficiency that objects can't have divergent attributes without those attributes then being overwritten on the next update.
+  the very real deficiency that objects can't have divergent attributes without those attributes then being overwritten on the next update.\footnote{I ran into this when writing Caterwaul; its
+  homepage is a self-modifying Perl file that needed a gray background instead of a white one when rendered as HTML. So I wrote divergence detection.}
 
   Neither of these problems is actually very difficult to solve. All we need to do is store not only the name of the attribute that we inherited, but also the state it was in when we last read
-  it. We then make sure that the attribute we've got hasn't changed since we last read it before we update it. If it's in a different state, we assume that it was modified locally.
+  it. We then make sure that the attribute we've got hasn't changed since we last read it before we update it. If it's in a different state, we assume that it was modified locally and preserve
+  our local copy.
+
+  - s1 Attribute hashing
+    Right now, {\tt parent::} attributes are stored as lists of attributes defined by that parent. What we really want is not only the names of those attributes, but their hashes as well. So,
+    for example, we inherited {\tt function::ls} from {\tt object} and its hash was {\tt 01a23d51d5b529e03943bd57e33f92df}. If our copy isn't the same, then we preserve our local one because
+    it's divergent.
+
+    {\tt function::update-from} uses {\tt ls} to get the attribute list that ends up making up the {\tt parent::} attribute. The last implementation used {\tt -aiu}; we'll add a new
+    command-line option called {\tt -h} that tells {\tt ls} to include hashes. So the output would look like this:
+
+    - verbatim << end
+      $ ./object ls -ahiu
+      ...
+      meta::type::meta       c6250056816b58a9608dd1b2614246f8
+      meta::type::parent     09d1d03379e4e0b262e06939f4e00464
+      meta::type::retriever  71a29050bf9f20f6c71afddff83addc9
+      meta::type::state      84da7d5220471307f1f990c5057d3319
+      ...
+      $
+    - end
+
+    This is saying that {\tt object}'s copy of {\tt meta::type::meta} hashes to {\tt c6250056816b58a9608dd1b2614246f8}, so if ours doesn't, then we have diverged. This divergence detection is
+    taken care of by {\tt update-from}, which still evaluates everything the parent script sends but restores divergent attribute values after the fact. (I considered doing it the right way
+    and having the parent script not send divergent attributes, but this was more complicated than I wanted to implement.)
+
+  - s1 The code (lots of it)
+    In order to implement all of this stuff, we'll need to modify {\tt ls} and {\tt update-from}.
+
+    - s2 The new {\tt ls}
+      Here's the monster {\tt ls} that {\tt object} defines:\footnote{Don't worry if you don't get what's going on here. Most of it is just display logic.}
+
+      - resource snippets/updated-ls << end
+        meta::function('ls', <<'EOF');
+        my ($options, @criteria) = separate_options(@_);
+        my ($external, $shadows, $sizes, $flags, $long, $hashes, $parent_hashes) =
+            @$options{qw(-e -s -z -f -l -h -p)};
+
+        $sizes = $flags = $hashes = $parent_hashes = 1 if $long;
+
+        return table_display([grep ! exists $data{$externalized_functions{$_}},
+            sort keys %externalized_functions]) if $shadows;
+
+        my $criteria    = join('|', @criteria);
+        my @definitions = select_keys('--criteria' => $criteria,
+                                      '--path' => $transient{path}, %$options);
+
+        my %inverses  = map {$externalized_functions{$_} => $_} keys %externalized_functions;
+        my @externals = map $inverses{$_}, grep length, @definitions;
+        my @internals = grep length $inverses{$_}, @definitions;
+        my @sizes     = map sprintf('%6d %6d', length(serialize_single($_)), length(retrieve($_))),
+            @{$external ? \@internals : \@definitions} if $sizes;
+
+        my @flags     = map {my $k = $_; join '', map(is($k, "-$_") ? $_ : '-', qw(d i m u))}
+            @definitions if $flags;
+
+        my @hashes    = map fast_hash(retrieve($_)), @definitions if $hashes;
+
+        my %inherited     = parent_attributes(grep /^parent::/o, keys %data) if $parent_hashes;
+        my @parent_hashes = map $inherited{$_} || '-', @definitions if $parent_hashes;
+
+        join "\n", map strip($_), split /\n/,
+            table_display($external ? [grep length, @externals] : [@definitions],
+                          $sizes ? ([@sizes]) : (), $flags ? ([@flags]) : (),
+                          $hashes ? ([@hashes]) : (), $parent_hashes ? ([@parent_hashes]) : ());
+        EOF
+      - end
+
+      There isn't as much going on here as it looks like. Most of the logic is just figuring out what to display, as this {\tt ls} implementation supports many different display modes. A few
+      things I would like to point out, though, are:
+
+      - enumerate << end
+        - item
+          On line 8, I reference a function called \verb|table_display|. This just puts things into aligned columns; here's how {\tt object} defines it:
+
+          - resource snippets/table-display << end
+            meta::internal_function('table_display', <<'EOF');
+            # Displays an array of arrays as a table; that is, with alignment. Arrays are
+            # expected to be in column-major order.
+
+            sub maximum_length_in {
+              my $maximum = 0;
+              length > $maximum and $maximum = length for @_;
+              $maximum;
+            }
+
+            my @arrays    = @_;
+            my @lengths   = map maximum_length_in(@$_), @arrays;
+            my @row_major = map {my $i = $_; [map $$_[$i], @arrays]} 0 .. $#{$arrays[0]};
+            my $format    = join '  ', map "%-${_}s", @lengths;
+
+            join "\n", map strip(sprintf($format, @$_)), @row_major;
+            EOF
+          - end
+
+        - item
+          On line 13, I reference \verb|$transient{path}|. This is a really useful shell feature that implicitly filters attributes when you type {\tt ls}, but otherwise has nothing to do with
+          what's going on here.
+
+        - item
+          On line 21, I reference a function called {\tt is()}. Remember the gnarly {\tt grep} conditional in \verb|select_keys|? That's now factored into {\tt function::is}. Here's {\tt
+          object}'s implementation:
+
+          - resource snippets/function-is << end
+            meta::function('is', <<'EOF');
+            my ($attribute, @criteria) = @_;
+            my ($options, @stuff) = separate_options(@criteria);
+            exists $data{$attribute} and attribute_is($attribute, %$options);
+            EOF
+          - end
+
+          - resource snippets/internal-function-attribute-is << end
+            meta::internal_function('attribute_is', <<'EOF');
+            my ($a, %options) = @_;
+            my %inherited = parent_attributes(grep /^parent::/o, sort keys %data) if
+                grep exists $options{$_}, qw/-u -U -d -D/;
+
+            my $criteria = $options{'--criteria'} ||
+                           $options{'--namespace'} && "^$options{'--namespace'}::" || '.';
+
+            my %tests = ('-u' => sub {! $inherited{$a}},
+                         '-d' => sub {$inherited{$a} && fast_hash(retrieve($a)) ne $inherited{$a}},
+                         '-i' => sub {$transient{inherit}{namespace($a)}},
+                         '-s' => sub {$a =~ /^state::/o},
+                         '-m' => sub {$a =~ /^meta::/o});
+
+            # These checks make sure all tests are satisfied (a test is just a
+            # command-line option). I'm sure there's a clearer way to do it...
+            return 0 unless scalar keys %tests == scalar
+                grep ! exists $options{$_}    ||   &{$tests{$_}}(), keys %tests;
+
+            return 0 unless scalar keys %tests == scalar
+                grep ! exists $options{uc $_} || ! &{$tests{$_}}(), keys %tests;
+
+            $a =~ /$_/ || return 0 for @{$options{'--path'}};       # I'll explain this later
+            $a =~ /$criteria/;
+            EOF
+          - end
+      - end
+
+    - s2 The new {\tt update-from}
+      
+
 __
 meta::section('eval-backtraces', <<'__');
 - sc {\tt eval} backtraces | sec:eval-backtraces
@@ -2908,12 +3101,14 @@ meta::section('main', <<'__');
   - include section::some-improvements
 
   - sp The Fun Stuff
+  - include section::rendering-as-html
   - include section::eval-backtraces
   - include section::archiving-state
   - include section::cloning-and-inheritance
   - include section::detecting-divergence
-  - include section::rendering-as-html
+  - include section::virtual-attributes
 - end
+
 __
 meta::section('namespaces', <<'__');
 - sc Namespaces | sec:namespaces
@@ -3281,7 +3476,44 @@ meta::section('namespaces', <<'__');
 __
 meta::section('rendering-as-html', <<'__');
 - sc Rendering as HTML | sec:rendering-as-html
-  Todo...
+  It turns out that browsers are very lenient about what they're willing to render as HTML. From what I've seen, anything that ends with {\tt .html} will be rendered this way, with extra stuff
+  inserted into the \verb|<body>| as toplevel text. This is perfect for doing some fun stuff with self-modifying Perl files.
+
+  First, I should note that the actual UI implementation is in Caterwaul 0.x and is beyond the scope of this guide. But the basic ideas still apply. There are two things you'll want to do to
+  make your script HTML-renderable. The first is to create a {\tt bootstrap::} attribute with some markup in it. It's useful for it to be a {\tt bootstrap::} attribute because these are
+  unevaluated. Here's {\tt bootstrap::html} from {\tt object}:
+
+  - resource snippets/object/bootstrap::html << end
+    <html>
+      <head>
+      <meta http-equiv='content-type' content='text/html; charset=UTF-8' />
+      <link rel='stylesheet' href='http://spencertipping.com/perl-objects/web/style.css'/>
+
+      <script src='http://ajax.googleapis.com/ajax/libs/jquery/1.5.2/jquery.min.js'></script>
+      <script src='http://spencertipping.com/caterwaul/caterwaul.all.min.js'></script>
+      <script src='http://spencertipping.com/montenegro/montenegro.client.js'></script>
+      <script src='http://spencertipping.com/perl-objects/web/attribute-parser.js'></script>
+      <script src='http://spencertipping.com/perl-objects/web/interface.js'></script>
+      </head>
+      <body></body>
+    </html>
+  - end
+
+  If you copy this attribute into a Perl file, it should indeed render as a web page. There's really only one problem with it, which is that before {\tt bootstrap::html} is loaded you'll see a
+  bunch of garbage on the screen. Rather than solve this in any sane and correct way, I just implemented this hack in {\tt bootstrap::initialization}:\footnote{The backslash before the end of
+  the line isn't in the real {\tt object}, I just put it here to indicate that the line should be continued, not broken.}
+
+  - resource snippets/object/bootstrap::initialization-div << end
+    # For the benefit of HTML viewers (this is hack):
+    # <div id='cover' style='position: absolute; left: 0; top: 0; \
+        width: 10000px; height: 10000px; background: white'></div>
+  - end
+
+  This covers up the garbage until a function in {\tt interface.js} removes the covering \verb|<div>|.
+
+  By the way, I highly recommend using the HTML view of Perl objects while reading the rest of this guide. You can get to them here: \url{http://spencertipping.com/perl-objects} (each {\tt
+  .html} file is just a symlink to the Perl object of the same name).
+
 __
 meta::section('serialization', <<'__');
 - sc Serialization | sec:serialization
@@ -3872,10 +4104,9 @@ meta::section('some-improvements', <<'__');
     creating a key called {\tt foo::bar} even though there isn't a namespace called {\tt foo::}. This problem can be solved at the interface level (i.e.~inside {\tt edit}, {\tt set}, and
     such), but it's probably more useful to go a step further and abstract all access to \verb|%data|.
 
-    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}.\footnote{I can't remember why I thought {\tt
-    retrieve} was necessary when I wrote {\tt object}. As far as I know it still isn't; it's just there for symmetry I think.} These two functions also benefit from a couple more to separate
-    out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these functions are taken directly
-    from {\tt object}.}
+    Rather than writing to \verb|%data|, then, we'll use an internal function called {\tt associate}; and to read from it we'll use {\tt retrieve}. These two functions also benefit from a
+    couple more to separate out namespace components. The {\tt namespace} function gives you the base part, and the {\tt attribute} function gives you the rest.\footnote{All four of these
+    functions are taken directly from {\tt object}.}
 
     - perl snippets/namespace-attribute-retrieve-associate-functions << end
       meta::internal_function('namespace', <<'EOF');
@@ -4215,6 +4446,154 @@ meta::section('some-improvements', <<'__');
 
       __END__
     - end
+
+__
+meta::section('virtual-attributes', <<'__');
+- sc Virtual attributes
+  In the last chapter, {\tt retrieve} was defined to grab either an attribute or a file. But there are a lot more things you might want to do with it, including creating views of existing
+  data. This is exactly what virtual attributes are about.
+
+  - s1 Core implementation
+    Here's an updated {\tt retrieve}:
+
+    - resource snippets/updated-retrieve << end
+      meta::internal_function('retrieve', <<'EOF');
+      my @results = map defined $data{$_} ? $data{$_} : retrieve_with_hooks($_), @_;
+      wantarray ? @results : $results[0];
+      EOF
+    - end
+
+    This is exactly the same as the one before except that the hard-coded {\tt file::read} call has been replaced by a call to \verb|retrieve_with_hooks|. This provides the indirection
+    necessary to allow the user to introduce arbitrary retrievers. Before the user can do this, though, we'll need to make a new namespace:
+
+    - resource snippets/meta-retriever << end
+      meta::meta('type::retriever', <<'EOF');
+      meta::configure 'retriever', extension => '.pl', inherit => 1;
+      meta::define_form 'retriever', sub {
+        my ($name, $value) = @_;
+        $transient{retrievers}{$name} = meta::eval_in("sub {\n$value\n}", "retriever::$name");
+      };
+      EOF
+    - end
+
+    Nothing particularly interesting is going on here. We're just maintaining a ${\rm name} \rightarrow {\rm implementation}$ mapping in \verb|%transient|. This mapping is then used by
+    \verb|retrieve_with_hooks|, which asks {\tt retriever::} functions for their values until one of them returns something besides {\tt undef}:
+
+    - resource snippets/retrieve-with-hooks << end
+      meta::internal_function('retrieve_with_hooks', <<'EOF');
+      # Uses the hooks defined in $transient{retrievers}, and returns undef if none work.
+      my ($attribute) = @_;
+      my $result      = undef;
+
+      defined($result = &$_($attribute)) and return $result for
+          map $transient{retrievers}{$_}, sort keys %{$transient{retrievers}};
+
+      return undef;
+      EOF
+    - end
+
+  - s1 Retrievers in {\tt object}
+    {\tt object} comes with four retrievers:
+
+    - enumerate << end
+      - item[] {\tt retriever::file}
+        Retrieves contents from a filename. This lets you say things like {\tt cat foo}, where {\tt foo} is a file. By extension, you can also copy files into named attributes using {\tt
+        function::cp}.
+
+        - resource snippets/retriever-file << end
+          meta::retriever('file', <<'EOF');
+          -f $_[0] ? file::read($_[0]) : undef;
+          EOF
+        - end
+
+      - item[] {\tt retriever::id}
+        Retrieves the string you are retrieving. This is primarily useful when you want a quick test value for something. For instance {\tt cat id::foobar} will print {\tt foobar}. Note that
+        {\tt id::} is not defined as a namespace, it's just a name pattern detected by {\tt retriever::id}.
+
+        - resource snippets/retriever-id << end
+          meta::retriever('id', <<'EOF');
+          $_[0] =~ /^id::/ ? substr($_[0], 4) : undef;
+          EOF
+        - end
+
+      - item[] {\tt retriever::object}
+        This is a fun one. It lets you ask other Perl objects for their attributes. For example, {\tt cat object::./foo::function::ls} fetches {\tt function::ls} from {\tt ./foo}. If {\tt
+        ./foo} is unreachable or doesn't contain {\tt function::ls}, then {\tt undef} is returned (which allows other retrievers to try to resolve your virtual attribute).
+
+        - resource snippets/retriever-object << end
+          meta::retriever('object', <<'EOF');
+          # Fetch a property from another Perl object. This uses the 'cat' function.
+          return undef unless $_[0] =~ /^object::(.*?)::(.*)$/ && -x $1 && qx|$1 is '$2'|;
+          join '', qx|$1 cat '$2'|;
+          EOF
+        - end
+
+      - item[] {\tt retriever::perl}
+        This returns the result of evaluating a given Perl expression. For example, {\tt cat perl::3+4} prints {\tt 7}.
+
+        - resource snippets/retriever-perl << end
+          meta::retriever('perl', <<'EOF');
+          # Lets you use the result of evaluating some Perl expression
+          return undef unless $_[0] =~ /^perl::(.*)$/;
+          eval $1;
+          EOF
+        - end
+    - end
+
+    As you can see, there's not much involved in writing a retriever. The only particularly counterintuitive thing about it is returning {\tt undef} instead of {\tt 0} or the empty string.
+
+  - Fixing up {\tt edit}
+    Right now, {\tt function::edit} will happily let you edit a virtual attribute and then attempt to {\tt associate} it, causing a failure. This is obviously lame; here's a better {\tt edit}
+    function that takes care of this:
+
+    - resource snippets/updated-edit << end
+      meta::function('edit', <<'EOF');
+      my ($name, %options) = @_;
+      my $extension = extension_for($name);
+
+      die "$name is virtual or does not exist" unless exists $data{$name};
+
+      associate($name, invoke_editor_on($data{$name} // '', %options,
+          attribute => $name, extension => $extension), execute => 1)});
+
+      save() unless $data{'data::edit::no-save'};
+      '';
+      EOF
+    - end
+
+  - More interesting retrievers
+    I'm writing this document in a self-modifying Perl file that includes a simple preprocessor.\footnote{Unsurprisingly, it's called {\tt preprocessor} in the {\tt perl-objects} repository.}
+    In order to make this work, there are a bunch of attributes in the {\tt section::} namespace, and each one includes some preprocessor directives to either include other attributes or to
+    generate \TeX{} constructs (in some cases both).
+
+    The easiest way to render the document as \TeX{} is to just have a virtual attribute I can retrieve that will contain the fully preprocessed source. Fortunately, {\tt preprocessor}
+    provides {\tt retriever::pp} that does exactly this. Here's what that looks like:
+
+    - resource snippets/retriever-pp << end
+      meta::retriever('pp', <<'EOF');
+      return undef unless namespace($_[0]) eq 'pp';
+      my $attr = retrieve(attribute($_[0]));
+      defined $attr ? preprocess($attr) : undef;
+      EOF
+    - end
+
+    Notice that this retriever itself calls {\tt retrieve}! This is totally allowed as long as you don't create an infinite loop. Here, we're trimming the {\tt pp::} from the beginning of the
+    attribute and are just retrieving the rest of it. This is good practice, as it lets you combine virtual retrievers. For example, you could preprocess an external file by saying {\tt cat
+    pp::my-file}.
+
+    Another interesting retriever is the {\tt http} retriever defined in {\tt repository}. This lets you retrieve arbitrary web content through Perl's LWP library:
+
+    - resource snippets/retriever-http << end
+      meta::retriever('http', <<'EOF');
+      use LWP::Simple ();
+      return undef unless $_[0] =~ /^(?:http:)?\/\/(\w+.*)$/;
+      LWP::Simple::get("http://$1");
+      EOF
+    - end
+
+    If you have this retriever, you can say things like {\tt cat http://google.com} (or shorter, {\tt cat //google.com}) and get back the content sent by the web server. This is especially
+    useful when combined with the preprocessor, as it allows you to compile web-based resources into the final output.
+
 __
 meta::template('comment', '\'\';     # A mechanism for line or block comments.');
 meta::template('eval', <<'__');
